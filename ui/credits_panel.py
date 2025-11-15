@@ -7,13 +7,11 @@ for reporting issues or supporting development.
 
 import bpy
 
-from .. import bl_info, globs
 from ..icons import get_icon_id
 
-DISCORD_URL = "https://discordapp.com/users/275608234595713024"
-GITHUB_ISSUES_URL = "https://github.com/Grim-es/material-combiner-addon/issues"
-PATREON_URL = "https://www.patreon.com/shotariya"
-BUYMEACOFFEE_URL = "https://buymeacoffee.com/shotariya"
+ADDON_VERSION = "3.0.0"
+DISCORD_URL = "https://discord.neoneko.xyz/"
+GITHUB_ISSUES_URL = "https://github.com/teamneoneko/material-combiner-addon/issues"
 
 
 class CreditsPanel(bpy.types.Panel):
@@ -27,7 +25,7 @@ class CreditsPanel(bpy.types.Panel):
     bl_label = "Credits & Support"
     bl_idname = "SMC_PT_Credits_Panel"
     bl_space_type = "VIEW_3D"
-    bl_region_type = "UI" if globs.is_blender_modern else "TOOLS"
+    bl_region_type = "UI"
     bl_category = "MatCombiner"
 
     def draw(self, context: bpy.types.Context) -> None:
@@ -52,9 +50,8 @@ class CreditsPanel(bpy.types.Panel):
         col = box.column()
         col.scale_y = 1.2
 
-        version_str = ".".join(map(str, bl_info["version"]))
         col.label(
-            text="Material Combiner {}".format(version_str),
+            text="Material Combiner {}".format(ADDON_VERSION),
             icon_value=get_icon_id("smc"),
         )
 
@@ -98,12 +95,9 @@ class CreditsPanel(bpy.types.Panel):
         col = box.column(align=True)
         col.scale_y = 1.2
 
-        col.label(text="Support Development:")
+        col.label(text="Report Issues:")
         self._create_link_button(
-            col, text="Patreon Support", icon="patreon", url=PATREON_URL
-        )
-        self._create_link_button(
-            col, text="Buy Me a Coffee", icon="bmc", url=BUYMEACOFFEE_URL
+            col, text="GitHub Issues", icon="github", url=GITHUB_ISSUES_URL
         )
 
     @staticmethod

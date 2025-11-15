@@ -28,8 +28,8 @@ SMCIcons = Union[
     None,
 ]
 
-# Scene type that handles version differences
-Scene = bpy.types.ViewLayer if globs.is_blender_modern else bpy.types.Scene
+# Scene type - ViewLayer for Blender 5.0+
+Scene = bpy.types.ViewLayer
 
 # Object data structure for material mapping
 SMCObDataItem = Dict[bpy.types.Material, int]

@@ -300,9 +300,6 @@ def get_image_from_material(
     Returns:
         The albedo/diffuse image or None if no texture is found.
     """
-    if globs.is_blender_legacy:
-        return get_image(get_texture(mat))
-
     if not mat.node_tree or not mat.node_tree.nodes:
         return None
 
@@ -345,10 +342,7 @@ def get_diffuse(mat: bpy.types.Material) -> Tuple[int, int, int, int]:
     if not mat:
         return diffuse_color
 
-    if globs.is_blender_legacy:
-        return _rgb_to_255_scale(mat.diffuse_color)
-
-    # For Blender 2.80+, use node-based detection
+    # Use node-based detection
     if not mat.node_tree or not mat.node_tree.nodes:
         return diffuse_color
 

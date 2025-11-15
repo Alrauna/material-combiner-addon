@@ -1077,7 +1077,7 @@ classes = (
 )
 
 
-def register(bl_info):
+def register():
     if Updater.error:
         print("Exiting updater registration, " + Updater.error)
         return
@@ -1085,13 +1085,13 @@ def register(bl_info):
     Updater.clear_state()
     Updater.engine = "Github"
     Updater.private_token = None
-    Updater.user = "Grim-es"
+    Updater.user = "teamneoneko"
     Updater.repo = "material-combiner-addon"
     Updater.website = (
-        "https://github.com/Grim-es/material-combiner-addon/archive/master.zip"
+        "https://github.com/teamneoneko/material-combiner-addon/archive/master.zip"
     )
     Updater.subfolder_path = ""
-    Updater.current_version = bl_info["version"]
+    Updater.current_version = (3, 0, 0, 0)
     Updater.verbose = False
     Updater.backup_current = False
     Updater.backup_ignore_patterns = ["*"]

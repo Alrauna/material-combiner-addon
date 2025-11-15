@@ -1,11 +1,9 @@
 """Registration module for the Material Combiner addon.
 
 This module handles the registration and unregistration of all Blender classes
-used by the addon. It also manages version-specific property annotations and
-initializes the icon system and updater functionality.
+used by the addon. It also manages property annotations and initializes the 
+icon system and updater functionality.
 """
-
-from typing import Dict, Union
 
 import bpy
 
@@ -43,18 +41,15 @@ __bl_classes = [
 ]
 
 
-def register_all(bl_info: Dict[str, Union[str, tuple]]) -> None:
+def register_all() -> None:
     """Register all components of the addon.
     
     This is the main registration function called when the addon is enabled.
     It registers all classes, initializes icons, and sets up the updater.
-    
-    Args:
-        bl_info: Dictionary containing addon metadata
     """
     _register_classes()
     initialize_smc_icons()
-    addon_updater_ops.register(bl_info)
+    addon_updater_ops.register()
     addon_updater_ops.check_for_update_background()
     extend_types.register()
 
@@ -107,8 +102,7 @@ def _unregister_classes() -> None:
 def make_annotations(cls: BlClasses) -> BlClasses:
     """Convert class properties to annotations for Blender 2.80+.
 
-    This function handles the transition from Blender's old property 
-    definition system to the new annotation-based system.
+    This function handles property definition for the extension system.
 
     Args:
         cls: Blender class to process.
@@ -116,13 +110,8 @@ def make_annotations(cls: BlClasses) -> BlClasses:
     Returns:
         The processed class with properties converted to annotations.
     """
-    if globs.is_blender_legacy:
-        return cls
-
-    if bpy.app.version >= (2, 93, 0):
-        bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, bpy.props._PropertyDeferred)}
-    else:
-        bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, tuple)}
+    # Blender 5.0+ uses _PropertyDeferred for properties
+    bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, bpy.props._PropertyDeferred)}
 
     if bl_props:
         if '__annotations__' not in cls.__dict__:

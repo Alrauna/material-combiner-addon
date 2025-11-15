@@ -29,8 +29,6 @@ import numpy as np
 
 from ...globs import (
     CombineListTypes,
-    is_blender_legacy,
-    is_blender_modern,
 )
 from ...type_annotations import (
     CombMats,
@@ -172,10 +170,7 @@ def _delete_material(ob: bpy.types.Object, name: str) -> None:
     if ob.type == 'MESH':
         mat_idx = ob.data.materials.find(name)
         if mat_idx >= 0:
-            if is_blender_modern:
-                ob.data.materials.pop(index=mat_idx)
-            else:
-                ob.data.materials.pop(index=mat_idx, update_data=True)
+            ob.data.materials.pop(index=mat_idx)
 
 
 def get_duplicates(mats_uv: MatsUV) -> None:
@@ -295,9 +290,6 @@ def _get_image(mat: bpy.types.Material) -> Union[bpy.types.Image, None]:
     Returns:
         Image from the material or None if not found.
     """
-    if is_blender_legacy:
-        return get_image(get_texture(mat))
-
     return get_image_from_material(mat)
 
 
@@ -432,11 +424,8 @@ def _set_image_or_color(item: StructureItem, mat: bpy.types.Material) -> None:
         item: Material metadata.
         mat: Material to extract image or color from.
     """
-    if is_blender_modern:
-        image = get_image_from_material(mat)
-        item['gfx']['img_or_color'] = get_packed_file(image) if image else None
-    else:
-        item['gfx']['img_or_color'] = get_packed_file(get_image(get_texture(mat)))
+    image = get_image_from_material(mat)
+    item['gfx']['img_or_color'] = get_packed_file(image) if image else None
 
     if not item['gfx']['img_or_color']:
         item['gfx']['img_or_color'] = get_diffuse(mat)
@@ -732,15 +721,12 @@ def _create_material(texture: bpy.types.Texture, unique_id: str, idx: int) -> bp
         Created Blender material.
     """
     mat = bpy.data.materials.new(name='{}{}_{}'.format(atlas_material_prefix, unique_id, idx))
-    if is_blender_modern:
-        _configure_material(mat, texture)
-    else:
-        _configure_material_legacy(mat, texture)
+    _configure_material(mat, texture)
     return mat
 
 
 def _configure_material(mat: bpy.types.Material, texture: bpy.types.Texture) -> None:
-    """Configure a modern (Cycles/Eevee) material with the atlas texture.
+    """Configure a Cycles/Eevee material with the atlas texture.
 
     Args:
         mat: Material to configure.
@@ -764,19 +750,6 @@ def _configure_material(mat: bpy.types.Material, texture: bpy.types.Texture) -> 
 
 def _configure_material_legacy(mat: bpy.types.Material, texture: bpy.types.Texture) -> None:
     """Configure a legacy (Blender Internal) material with the atlas texture.
-
-    Args:
-        mat: Material to configure.
-        texture: Atlas texture.
-    """
-    mat.alpha = 0
-    mat.use_transparency = True
-    mat.diffuse_color = (1, 1, 1)
-    mat.use_shadeless = True
-
-    tex = mat.texture_slots.add()
-    tex.texture = texture
-    tex.use_map_alpha = True
 
 
 def assign_comb_mats(scn: Scene, data: SMCObData, comb_mats: CombMats) -> None:

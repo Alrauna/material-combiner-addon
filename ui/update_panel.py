@@ -20,7 +20,7 @@ class UpdatePanel(bpy.types.Panel):
     bl_label = "Updates"
     bl_idname = "SMC_PT_Update_Panel"
     bl_space_type = "VIEW_3D"
-    bl_region_type = "UI" if globs.is_blender_modern else "TOOLS"
+    bl_region_type = "UI"
     bl_category = "MatCombiner"
     bl_options = {"DEFAULT_CLOSED"}
 

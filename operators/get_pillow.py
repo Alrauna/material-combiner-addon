@@ -88,10 +88,7 @@ class InstallPIL(bpy.types.Operator):
             True if pip installation succeeds, False otherwise.
         """
         try:
-            if globs.is_blender_modern:
-                return self._try_install_pip_with_ensurepip()
-            else:
-                return self._install_pip_clean()
+            return self._try_install_pip_with_ensurepip()
         except Exception as e:
             self.report({"ERROR"}, "Failed to install pip: {}".format(e))
             return False
@@ -123,11 +120,7 @@ class InstallPIL(bpy.types.Operator):
             True if pip installation succeeds, False otherwise.
         """
         try:
-            python_executable = (
-                sys.executable
-                if globs.is_blender_2_92_plus
-                else bpy.app.binary_path_python
-            )
+            python_executable = sys.executable
             get_pip = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), "get-pip.py"
             )

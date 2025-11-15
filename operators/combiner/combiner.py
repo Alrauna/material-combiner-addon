@@ -142,13 +142,12 @@ class Combiner(bpy.types.Operator):
             return self._return_with_message(
                 "ERROR", "No valid objects selected"
             )
-
         if self.cats:
             scn.smc_size = "PO2"
             scn.smc_gaps = 0
 
         set_ob_mode(
-            context.view_layer if globs.is_blender_modern else scn,
+            context.view_layer,
             scn.smc_ob_data,
         )
         self.data = get_data(scn.smc_ob_data)
@@ -160,9 +159,6 @@ class Combiner(bpy.types.Operator):
         clear_empty_mats(scn, self.data, self.mats_uv)
         get_duplicates(self.mats_uv)
         self.structure = get_structure(scn, self.data, self.mats_uv)
-
-        if globs.is_blender_legacy:
-            context.space_data.viewport_shade = "MATERIAL"
 
         # Check if we're only dealing with duplicate materials
         total_unique_mats = len(self.structure)

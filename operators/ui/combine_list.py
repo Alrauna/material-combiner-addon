@@ -17,7 +17,7 @@ from typing import Dict, List, Set, cast
 import bpy
 from bpy.props import IntProperty
 
-from ...globs import CombineListTypes, is_blender_3_plus
+from ...globs import CombineListTypes
 from ...type_annotations import CombineListData, Scene
 from ...utils.materials import get_materials
 
@@ -152,11 +152,10 @@ class MaterialListRefreshOperator(bpy.types.Operator):
     @staticmethod
     def _ensure_material_preview(material: bpy.types.Material) -> None:
         """Generate preview if missing in Blender 3.0+.
-
         Args:
             material: Material to ensure preview for.
         """
-        if is_blender_3_plus and not material.preview:
+        if not material.preview:
             material.preview_ensure()
 
     @staticmethod

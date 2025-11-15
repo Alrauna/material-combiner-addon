@@ -135,7 +135,7 @@ class PropertyMenu(bpy.types.Operator):
             col: UI column to add the image display to.
             image: Image to display information for.
         """
-        if globs.is_blender_3_plus and not image.preview:
+        if not image.preview:
             image.preview_ensure()
 
         # Truncate image name if too long
@@ -178,14 +178,6 @@ class PropertyMenu(bpy.types.Operator):
             image: Optional texture image from the material.
         """
         mat = item.mat
-
-        if globs.is_blender_legacy:
-            col.prop(mat, 'smc_diffuse')
-            if not mat.smc_diffuse:
-                return
-
-            col.prop(mat, 'diffuse_color', text='')
-            return
 
         shader = get_shader_type(mat)
         if not shader:
@@ -258,8 +250,4 @@ class PropertyMenu(bpy.types.Operator):
         Returns:
             System DPI value for dialog sizing.
         """
-        return (
-            context.preferences.system.dpi
-            if globs.is_blender_modern
-            else context.user_preferences.system.dpi
-        )
+        return context.preferences.system.dpi

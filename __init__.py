@@ -27,18 +27,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-bl_info = {
-    "name": "Shotariya's Material Combiner",
-    "description": "Advanced Texture Atlas Generation System",
-    "author": "shotariya",
-    "version": (2, 1, 3, 0),
-    "blender": (2, 80, 0),
-    "location": "View3D",
-    "wiki_url": "https://github.com/Grim-es/material-combiner-addon",
-    "tracker_url": "https://github.com/Grim-es/material-combiner-addon/issues",
-    "category": "Object",
-}
-
 from .registration import register_all, unregister_all  # noqa: E402
 
 
@@ -49,7 +37,7 @@ def register() -> None:
     It delegates to the registration module to initialize all components.
     """
     print("Loading Material Combiner..")
-    register_all(bl_info)
+    register_all()
 
 
 def unregister() -> None:

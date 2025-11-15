@@ -1,8 +1,7 @@
 """Global constants and configuration for the Material Combiner addon.
 
-This module contains version detection logic, global constants, and configuration
-variables used throughout the addon. It provides consistent access to version-specific
-features and establishes addon-wide settings.
+This module contains configuration variables and constants used throughout 
+the addon. Requires Blender 5.0+.
 """
 
 import importlib.util
@@ -20,14 +19,12 @@ pil_available = all(
 
 pil_install_attempted = False
 
-is_blender_legacy = bpy.app.version < (2, 80, 0)
-is_blender_modern = bpy.app.version >= (2, 80, 0)
-is_blender_2_92_plus = bpy.app.version >= (2, 92, 0)
-is_blender_3_plus = bpy.app.version >= (3, 0, 0)
+# Blender version checks (minimum version is now 5.0)
+is_blender_5_plus = bpy.app.version >= (5, 0, 0)
 
-ICON_OBJECT = "META_CUBE" if is_blender_modern else "VIEW3D"
-ICON_PROPERTIES = "PREFERENCES" if is_blender_modern else "SCRIPT"
-ICON_DROPDOWN = "THREE_DOTS" if is_blender_modern else "DOWNARROW_HLT"
+ICON_OBJECT = "META_CUBE"
+ICON_PROPERTIES = "PREFERENCES"
+ICON_DROPDOWN = "THREE_DOTS"
 
 
 class CombineListTypes:
