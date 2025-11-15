@@ -748,10 +748,6 @@ def _configure_material(mat: bpy.types.Material, texture: bpy.types.Texture) -> 
     mat.node_tree.links.new(node_texture.outputs['Alpha'], node_bsdf.inputs['Alpha'])
 
 
-def _configure_material_legacy(mat: bpy.types.Material, texture: bpy.types.Texture) -> None:
-    """Configure a legacy (Blender Internal) material with the atlas texture.
-
-
 def assign_comb_mats(scn: Scene, data: SMCObData, comb_mats: CombMats) -> None:
     """Assign combined materials to objects.
 
