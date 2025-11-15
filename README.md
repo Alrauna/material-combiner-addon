@@ -1,16 +1,15 @@
 material-combiner-addon
 ===========
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Grim-es/material-combiner-addon)](https://github.com/Grim-es/material-combiner-addon/releases/latest)
-[![GitHub issues](https://img.shields.io/github/issues/Grim-es/material-combiner-addon)](https://github.com/Grim-es/material-combiner-addon/issues)
-[![GitHub stars](https://img.shields.io/github/stars/Grim-es/material-combiner-addon)](https://github.com/Grim-es/material-combiner-addon/stargazers)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/teamneoneko/material-combiner-addon)](https://github.com/teamneoneko/material-combiner-addon/releases/latest)
+[![GitHub issues](https://img.shields.io/github/issues/teamneoneko/material-combiner-addon)](https://github.com/teamneoneko/material-combiner-addon/issues)
+[![GitHub stars](https://img.shields.io/github/stars/teamneoneko/material-combiner-addon)](https://github.com/teamneoneko/material-combiner-addon/stargazers)
 
-#### An add-on for Blender that helps reduce draw calls in game engines by combining textures without quality loss and avoiding issues with UV bounds larger than 0–1.
+> **Originally created by [Grim-es](https://github.com/Grim-es/material-combiner-addon)** | **Currently maintained by Team Neoneko**
 
-#### If you like an add-on, you can support my work on Patreon or Buy me a coffee.
+#### An add-on for Blender 5.x that helps reduce draw calls in game engines by combining textures without quality loss and avoiding issues with UV bounds larger than 0–1.
 
-[<img src="http://webgrimes.com/buymeacoffee.svg" height="40px">](https://www.buymeacoffee.com/shotariya)
-[<img src="http://webgrimes.com/patreon.png" height="40px">](https://www.patreon.com/join/shotariya?)
+> **⚠️ Blender 5.x Only** | For Blender 4.x and earlier support, see [Grim-es' original repository](https://github.com/Grim-es/material-combiner-addon)
 
 ## FEATURES
 
@@ -24,11 +23,12 @@ material-combiner-addon
 
 ## INSTALLATION
 
-1. Download an add-on: [Material-combiner](https://github.com/Grim-es/material-combiner-addon/archive/master.zip).
-2. Go to File > User Preferences > Add-ons.
-3. Click on Install Add-on from File.
-4. Choose `material-combiner-addon-master.zip` archive.
-5. Activate Material Combiner.
+1. Download the latest release from the [Releases tab](https://github.com/teamneoneko/material-combiner-addon/releases).
+2. In Blender 5.0+, go to Edit > Preferences > Extensions.
+3. Click **Install from Disk**.
+4. Select the downloaded `.zip` file.
+5. Enable the Material Combiner extension.
+6. Restart Blender (recommended).
 
 ## HOW OT USE
 
@@ -108,5 +108,6 @@ remove the old installation folder. The default locations are:
 
 ## BUGS / SUGGESTIONS
 
-If you have found a bug or have suggestions to improve the tool, you can contact me on
-Discord: [@shotariya](https://discordapp.com/users/275608234595713024)
+If you have found a bug or have suggestions to improve the tool, please report them via:
+- **GitHub Issues**: [Report an issue](https://github.com/teamneoneko/material-combiner-addon/issues)
+- **Discord**: Join our [Discord server](https://discord.neoneko.xyz/)
