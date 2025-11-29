@@ -11,6 +11,8 @@ material-combiner-addon
 
 > **⚠️ Blender 5.x Only** | For Blender 4.x and earlier support, see [Grim-es' original repository](https://github.com/Grim-es/material-combiner-addon)
 
+> **We want to make it clear, unlike other addons we forked material combiner is still maintained, but our focus is on Blender 5.x and not earlier versions**
+
 ## FEATURES
 
 * **Combining Multiple Materials**: Allows you to mix diffuse colors with textures, and specify both the size of the
