@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "extension": {
+    "id": "shotariyas_material_combiner",
+    "name": "Shotariya's Material Combiner",
+    "module": "bl_ext.user_default.shotariyas_material_combiner"
+  },
+  "registered_classes": [
+    ["ui.selection_menu", "SMC_MT_SelectionMenu", "SMC_MT_SelectionMenu"],
+    ["ui.credits_panel", "CreditsPanel", "SMC_PT_Credits_Panel"],
+    ["ui.main_panel", "MaterialCombinerPanel", "SMC_PT_Main_Panel"],
+    ["ui.property_panel", "PropertyMenu", "smc.material_properties"],
+    ["ui.update_panel", "UpdatePanel", "SMC_PT_Update_Panel"],
+    ["operators.browser", "OpenBrowser", "smc.browser"],
+    ["operators.ui.combine_list", "MaterialListRefreshOperator", "smc.refresh_ob_data"],
+    ["operators.ui.combine_list", "MaterialListToggleOperator", "smc.combine_switch"],
+    ["operators.ui.combine_list", "SelectAllMaterials", "smc.select_all"],
+    ["operators.ui.combine_list", "SelectNoneMaterials", "smc.select_none"],
+    ["operators.combiner.combiner", "Combiner", "smc.combiner"],
+    ["operators.get_pillow", "InstallPIL", "smc.get_pillow"],
+    ["extend_types", "CombineListEntry", null],
+    ["extend_types", "UpdatePreferences", "bl_ext.user_default.shotariyas_material_combiner"],
+    ["extend_lists", "SMC_UL_Combine_List", null]
+  ],
+  "operators": {
+    "smc.material_properties": {
+      "list_id": 0
+    },
+    "smc.browser": {
+      "link": ""
+    },
+    "smc.refresh_ob_data": {},
+    "smc.combine_switch": {
+      "list_id": 0
+    },
+    "smc.select_all": {},
+    "smc.select_none": {},
+    "smc.combiner": {
+      "directory": "",
+      "filter_glob": "",
+      "cats": false
+    },
+    "smc.get_pillow": {}
+  },
+  "scene_properties": [
+    "smc_ob_data",
+    "smc_ob_data_id",
+    "smc_list_id",
+    "smc_size",
+    "smc_size_width",
+    "smc_size_height",
+    "smc_crop",
+    "smc_pixel_art",
+    "smc_diffuse_size",
+    "smc_gaps",
+    "smc_save_path",
+    "smc_packer_type"
+  ],
+  "scene_defaults": {
+    "smc_ob_data_id": 0,
+    "smc_list_id": 0,
+    "smc_size": "QUAD",
+    "smc_size_width": 4096,
+    "smc_size_height": 4096,
+    "smc_crop": true,
+    "smc_pixel_art": false,
+    "smc_diffuse_size": 32,
+    "smc_gaps": 0,
+    "smc_save_path": "",
+    "smc_packer_type": "BINARY_TREE"
+  },
+  "material_properties": [
+    "root_mat",
+    "smc_diffuse",
+    "smc_size",
+    "smc_size_width",
+    "smc_size_height"
+  ],
+  "material_defaults": {
+    "root_mat": null,
+    "smc_diffuse": true,
+    "smc_size": false,
+    "smc_size_width": 2048,
+    "smc_size_height": 2048
+  },
+  "combine_list_entry_defaults": {
+    "ob": null,
+    "ob_id": 0,
+    "mat": null,
+    "layer": 1,
+    "used": true,
+    "type": 0
+  },
+  "ui_list_defaults": {
+    "filter_name": "",
+    "filter_mode": "BOTH",
+    "use_filter_sort_reverse": false,
+    "filter_initialized": false
+  },
+  "preferences_defaults": {
+    "auto_check_update": true,
+    "updater_interval_months": 0,
+    "updater_interval_days": 1,
+    "updater_interval_hours": 0,
+    "updater_interval_minutes": 0
+  },
+  "cats_contract": {
+    "module_paths": [
+      "operators.ui.include",
+      "globs",
+      "ui.main_panel"
+    ],
+    "symbols": [
+      "operators.ui.include.draw_ui",
+      "globs.pil_available",
+      "globs.pil_install_attempted",
+      "ui.main_panel.MaterialCombinerPanel.draw_pillow_installer"
+    ],
+    "operator_calls": [
+      "smc.refresh_ob_data",
+      "smc.combiner"
+    ],
+    "ui_list": "SMC_UL_Combine_List"
+  },
+  "saved_file_identifiers": {
+    "scene": [
+      "smc_ob_data",
+      "smc_ob_data_id",
+      "smc_list_id",
+      "smc_size",
+      "smc_size_width",
+      "smc_size_height",
+      "smc_crop",
+      "smc_pixel_art",
+      "smc_diffuse_size",
+      "smc_gaps",
+      "smc_save_path",
+      "smc_packer_type"
+    ],
+    "material": [
+      "root_mat",
+      "smc_diffuse",
+      "smc_size",
+      "smc_size_width",
+      "smc_size_height"
+    ],
+    "collection_item": [
+      "ob",
+      "ob_id",
+      "mat",
+      "layer",
+      "used",
+      "type"
+    ]
+  },
+  "behavior": {
+    "visible_mesh_discovery": "all visible mesh objects with an active UV layer and materials",
+    "atlas_prefix": "Atlas_",
+    "atlas_material_prefix": "material_atlas_",
+    "collision_policy": "sequential unique name",
+    "cats_argument": true
+  }
+}
