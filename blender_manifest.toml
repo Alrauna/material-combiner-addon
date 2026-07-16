@@ -1,13 +1,21 @@
 schema_version = "1.0.0"
 
 id = "shotariyas_material_combiner"
-version = "3.0.0"
+version = "3.1.0-alpha.1"
 name = "Shotariya's Material Combiner"
 tagline = "Advanced texture atlas generation system for optimized rendering"
 maintainer = "Neoneko"
 type = "add-on"
 
-blender_version_min = "5.0.0"
+blender_version_min = "5.2.0"
+
+platforms = [
+  "windows-x64",
+]
+
+wheels = [
+  "./wheels/pillow-12.3.0-cp313-cp313-win_amd64.whl",
+]
 
 license = [
   "SPDX:MIT",
@@ -17,9 +25,7 @@ website = "https://github.com/teamneoneko/material-combiner-addon"
 
 tags = [
   "Material",
-  "Optimization",
   "UV",
-  "Texture",
 ]
 
 # Required permissions for the addon
@@ -32,4 +38,5 @@ paths_exclude_pattern = [
   ".*",
   "*.zip",
   "BLENDER_5_0_COMPATIBILITY_ANALYSIS.md",
+  "tests/",
 ]

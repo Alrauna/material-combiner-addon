@@ -31,6 +31,8 @@ parts/
 sdist/
 var/
 wheels/
+!wheels/
+!wheels/pillow-12.3.0-cp313-cp313-win_amd64.whl
 *.egg-info/
 .installed.cfg
 *.egg
