@@ -56,19 +56,30 @@ ImageFile = None
 ImageType = None
 resampling = None
 
-try:
-    from PIL import Image, ImageChops, ImageFile
 
+def ensure_pillow_available() -> None:
+    """Bind Pillow after Blender has activated extension-managed wheels.
+
+    Pillow's decompression-bomb and truncated-input policies are intentionally
+    left at their library defaults.
+    """
+    global Image, ImageChops, ImageFile, ImageType, resampling
+    if Image is not None:
+        return
+
+    from PIL import Image as pillow_image
+    from PIL import ImageChops as pillow_image_chops
+    from PIL import ImageFile as pillow_image_file
+
+    Image = pillow_image
+    ImageChops = pillow_image_chops
+    ImageFile = pillow_image_file
     ImageType = Image.Image
+    resampling = Image.Resampling.LANCZOS
 
-    Image.MAX_IMAGE_PIXELS = None
-    try:
-        resampling = Image.LANCZOS
-    except AttributeError:
-        resampling = Image.ANTIALIAS
 
-    if ImageFile:
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
+try:
+    ensure_pillow_available()
 except ImportError:
     pass
 

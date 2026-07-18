@@ -8,6 +8,12 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$WorkDirectory,
 
+    [string]$TestScript = "tests\blender\verify_packaged_dependency.py",
+
+    [string]$ResultName = "packaged_dependency.json",
+
+    [string]$TestName = "dependency",
+
     [ValidatePattern("^[A-Z]$")]
     [string]$DriveLetter = "O"
 )
@@ -61,6 +67,9 @@ $environment = @{
     "TEMP" = Join-Path $runtimeProfile "temp"
     "TMP" = Join-Path $runtimeProfile "temp"
     "PYTHONNOUSERSITE" = "1"
+    "SMC_TEST_CONTRACT" = Join-Path $repo (
+        "tests\contracts\public_api_contract.json"
+    )
 }
 
 function New-BlenderProcess {
@@ -125,22 +134,26 @@ try {
     )
 
     $environment["SMC_TEST_RESULT"] = Join-Path $runtimeProfile (
-        "results\packaged_dependency.json"
+        "results\$ResultName"
     )
-    Invoke-BlenderProcess -Name "dependency" -Arguments @(
+    Invoke-BlenderProcess -Name $TestName -Arguments @(
         "--factory-startup",
         "--disable-autoexec",
         "--background",
         "--python",
-        (Join-Path $repo "tests\blender\verify_packaged_dependency.py")
+        (Join-Path $repo $TestScript)
     )
+    $resultPath = Join-Path $profile "results\$ResultName"
+    if (-not (Test-Path -LiteralPath $resultPath)) {
+        throw "Installed-package test did not create $resultPath"
+    }
 }
 finally {
     & subst $driveName /d
 }
 
 [PSCustomObject]@{
-    Result = Join-Path $profile "results\packaged_dependency.json"
+    Result = $resultPath
     InstallLog = Join-Path $profile "results\install.stdout.log"
-    DependencyLog = Join-Path $profile "results\dependency.stdout.log"
+    TestLog = Join-Path $profile "results\$TestName.stdout.log"
 }

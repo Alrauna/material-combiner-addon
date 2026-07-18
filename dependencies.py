@@ -27,6 +27,18 @@ _restart_required = False
 _stale_native_loaded = False
 
 
+def _filesystem_path(path: Path) -> Path:
+    """Use Windows extended-length syntax for dependency integrity I/O."""
+    if os.name != "nt":
+        return path
+    value = str(path.absolute())
+    if value.startswith("\\\\?\\"):
+        return path
+    if value.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + value[2:])
+    return Path("\\\\?\\" + value)
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -64,12 +76,13 @@ def _wheel_integrity(
     if dependency is None:
         return False, False, "Dependency lock is unavailable."
     wheel = PACKAGE_ROOT / str(dependency["wheel"])
-    if not wheel.is_file():
+    filesystem_wheel = _filesystem_path(wheel)
+    if not filesystem_wheel.is_file():
         return False, False, f"Missing wheel: {wheel}"
     try:
         valid = (
-            wheel.stat().st_size == int(dependency["size"])
-            and _sha256(wheel) == dependency["sha256"]
+            filesystem_wheel.stat().st_size == int(dependency["size"])
+            and _sha256(filesystem_wheel) == dependency["sha256"]
         )
     except OSError as exc:
         return True, False, repr(exc)

@@ -139,11 +139,19 @@ finally {
     [Text.UTF8Encoding]::new($false)
 )
 
+$resultPath = Join-Path $profile "results\$ResultName"
+$effectiveExitCode = $process.ExitCode
+if ($effectiveExitCode -eq 0 -and -not (Test-Path -LiteralPath $resultPath)) {
+    $effectiveExitCode = 1
+    Add-Content -LiteralPath (Join-Path $profile "results\blender.stderr.log") `
+        -Value "Test failed: Blender did not create $resultPath"
+}
+
 [PSCustomObject]@{
-    ExitCode = $process.ExitCode
-    Result = Join-Path $profile "results\$ResultName"
+    ExitCode = $effectiveExitCode
+    Result = $resultPath
     StandardOutput = Join-Path $profile "results\blender.stdout.log"
     StandardError = Join-Path $profile "results\blender.stderr.log"
 }
 
-exit $process.ExitCode
+exit $effectiveExitCode
