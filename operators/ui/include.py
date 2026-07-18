@@ -20,14 +20,11 @@ def draw_ui(context: bpy.types.Context, m_col: bpy.types.UILayout) -> None:
         context: Current Blender context.
         m_col: UILayout to draw the Material Combiner interface in.
     """
-    if globs.pil_available:
+    status = globs.refresh_dependency_status(cats_invocation=True)
+    if status.healthy:
         _materials_list(context.scene, m_col)
-    elif globs.pil_install_attempted:
-        col = m_col.box().column()
-        col.label(text="Installation complete", icon_value=get_icon_id("done"))
-        col.label(text="Please restart Blender", icon_value=get_icon_id("null"))
     else:
-        MaterialCombinerPanel.pillow_installator(m_col)
+        MaterialCombinerPanel.draw_pillow_installer(context, m_col)
 
 
 def _materials_list(scn: Scene, m_col: bpy.types.UILayout) -> None:

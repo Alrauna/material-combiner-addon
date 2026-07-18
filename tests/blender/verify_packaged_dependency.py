@@ -63,6 +63,16 @@ def main() -> None:
         enable_result = bpy.ops.preferences.addon_enable(module=MODULE)
         enabled = enable_result == {"FINISHED"}
         assert enabled, enable_result
+        status = package.globs.refresh_dependency_status()
+        report["dependency_status"] = status.as_dict(include_paths=True)
+        report["compatibility_globals"] = {
+            "pil_available": package.globs.pil_available,
+            "pil_install_attempted": package.globs.pil_install_attempted,
+        }
+        diagnostics_result = bpy.ops.smc.get_pillow()
+        report["diagnostics_operator"] = {
+            "result": sorted(diagnostics_result),
+        }
 
         import PIL
         from PIL import Image, features
@@ -114,6 +124,13 @@ def main() -> None:
         and report.get("pillow_native_version") == "12.3.0"
         and report.get("pillow_feature_version") == "12.3.0"
         and report.get("native_imported") is True
+        and report.get("dependency_status", {}).get("category") == "healthy"
+        and report.get("compatibility_globals", {}).get("pil_available") is True
+        and report.get("compatibility_globals", {}).get(
+            "pil_install_attempted"
+        ) is False
+        and report.get("diagnostics_operator", {}).get("result")
+        == ["FINISHED"]
         and not NETWORK_ATTEMPTS
         and not PROCESS_ATTEMPTS
     )

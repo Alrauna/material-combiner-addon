@@ -4,20 +4,25 @@ This module contains configuration variables and constants used throughout
 the addon. Requires Blender 5.0+.
 """
 
-import importlib.util
-import site
-import sys
-
 import bpy
 
-sys.path.insert(0, site.getusersitepackages())
+from .dependencies import get_dependency_status
 
-pil_available = all(
-    importlib.util.find_spec(module) is not None
-    for module in ("PIL", "PIL.Image", "PIL.ImageChops")
-)
+dependency_status = get_dependency_status()
+pil_available = dependency_status.healthy
 
+# CATS 5.0 and 5.2 call the centralized dependency UI while this remains
+# false. It no longer means that an installer ran.
 pil_install_attempted = False
+
+
+def refresh_dependency_status(cats_invocation: bool = False):
+    """Refresh compatibility globals from the immutable dependency status."""
+    global dependency_status, pil_available, pil_install_attempted
+    dependency_status = get_dependency_status(cats_invocation=cats_invocation)
+    pil_available = dependency_status.healthy
+    pil_install_attempted = False
+    return dependency_status
 
 # Blender version checks (minimum version is now 5.0)
 is_blender_5_plus = bpy.app.version >= (5, 0, 0)

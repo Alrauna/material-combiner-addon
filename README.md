@@ -7,9 +7,9 @@ material-combiner-addon
 
 > **Originally created by [Grim-es](https://github.com/Grim-es/material-combiner-addon)** | **Currently maintained by Team Neoneko**
 
-#### An add-on for Blender 5.x that helps reduce draw calls in game engines by combining textures without quality loss and avoiding issues with UV bounds larger than 0–1.
+#### An add-on for Blender 5.2 LTS that helps reduce draw calls in game engines by combining textures without quality loss and avoiding issues with UV bounds larger than 0–1.
 
-> **⚠️ Blender 5.x Only** | For Blender 4.x and earlier support, see [Grim-es' original repository](https://github.com/Grim-es/material-combiner-addon)
+> **⚠️ Current alpha: Blender 5.2 LTS on Windows x64 only.** Other platform packages require native validation before they can be published.
 
 > **We want to make it clear, unlike other addons we forked material combiner is still maintained, but our focus is on Blender 5.x and not earlier versions**
 
@@ -26,11 +26,12 @@ material-combiner-addon
 ## INSTALLATION
 
 1. Download the latest release from the [Releases tab](https://github.com/teamneoneko/material-combiner-addon/releases).
-2. In Blender 5.0+, go to Edit > Preferences > Extensions.
+2. In Blender 5.2 LTS, go to Edit > Preferences > Extensions.
 3. Click **Install from Disk**.
 4. Select the downloaded `.zip` file.
 5. Enable the Material Combiner extension.
-6. Restart Blender (recommended).
+6. Material Combiner includes its required Pillow dependency. Do not install
+   Pillow with pip or modify Blender's bundled Python.
 
 ## HOW OT USE
 
@@ -64,30 +65,23 @@ material-combiner-addon
 - If objects already share the same material with the same texture, they will not be atlased because they are already
   optimized, and the existing image will be used instead.
 
-### Pillow installation process is repeated
+### Material Combiner dependency issue
 
-- Make sure the VPN is not currently active.
+Pillow is bundled in the complete platform package and is loaded through
+Blender's extension system. Material Combiner never downloads or installs it
+at runtime.
 
-- **Windows** | Verify that Blender is not installed from the Windows Store, as it may not function correctly. To
-  install Pillow manually, navigate to your Blender installation folder, then to the folder with the
-  ***blender version name\python\bin*** and copy this path. Press ***Win+R*** on your keyboard, type ***cmd.exe***, and
-  press Enter. In the Windows console, enter the following commands:
-    ```powershell
-    set PythonPath="Your\Copied\Path\To\Python\bin\Folder"
+If the Dependency Status panel appears:
 
-    %PythonPath%\python.exe -m pip install Pillow --user --upgrade
-    ```
-  Replace ***Your\Copied\Path\To\Python\bin\Folder*** with the path you copied.
+1. Copy the sanitized dependency diagnostics from the panel.
+2. Remove unsupported source-folder installations.
+3. Reinstall the complete Material Combiner package for Blender 5.2 and
+   Windows x64 through **Preferences > Extensions > Install from Disk**.
+4. Restart Blender only when the diagnostic specifically reports that a loaded
+   native module is stale or cannot be replaced in the current process.
 
-- **macOS** | Open a Terminal console and execute the following commands:
-    ```bash
-    /Applications/Blender.app/Contents/MacOS/Blender -b --python-expr "__import__('ensurepip')._bootstrap()" 
-
-    /Applications/Blender.app/Contents/MacOS/Blender -b --python-expr "__import__('pip._internal')._internal.main(['install', '-U', 'pip', 'setuptools', 'wheel'])"
-
-    /Applications/Blender.app/Contents/MacOS/Blender -b --python-expr "__import__('pip._internal')._internal.main(['install', 'Pillow'])"
-    ```
-  If you install Blender in a different location, adjust the path at the beginning of each command accordingly.
+Do not run pip, add the normal Python user site, or modify Blender's bundled
+Python to repair Material Combiner.
 
 ### No module named 'material-combiner-addon-2'
 

@@ -5,7 +5,6 @@ target-version = "py311"
 extend-exclude = [
     "addon_updater.py",
     "addon_updater_ops.py",
-    "operators/get-pip.py"
 ]
 
 [tool.ruff.lint]

@@ -7,6 +7,12 @@ param(
 
     [string]$PillowRoot = "",
 
+    [string]$TestScript = "tests\blender\verify_public_api.py",
+
+    [string]$ResultName = "public_api.json",
+
+    [switch]$ExcludeWheel,
+
     [ValidatePattern("^[A-Z]$")]
     [string]$DriveLetter = "Q"
 )
@@ -40,6 +46,12 @@ $excluded = @(".git", ".ruff_cache", "__pycache__", "build", "dist")
 Get-ChildItem -LiteralPath $repo -Force | Where-Object {
     $_.Name -notin $excluded
 } | Copy-Item -Destination $extension -Recurse -Force
+if ($ExcludeWheel) {
+    $wheelDirectory = Join-Path $extension "wheels"
+    if (Test-Path -LiteralPath $wheelDirectory) {
+        Remove-Item -LiteralPath $wheelDirectory -Recurse -Force
+    }
+}
 
 $driveName = "$DriveLetter`:"
 $driveRoot = "$driveName\"
@@ -64,7 +76,7 @@ foreach ($argument in @(
     "--disable-autoexec",
     "--background",
     "--python",
-    (Join-Path $extensionRuntime "tests\blender\verify_public_api.py")
+    (Join-Path $extensionRuntime $TestScript)
 )) {
     $start.ArgumentList.Add($argument)
 }
@@ -83,7 +95,7 @@ $environment = @{
     "TMP" = Join-Path $profileRuntime "temp"
     "PYTHONNOUSERSITE" = "1"
     "SMC_TEST_CONTRACT" = Join-Path $extensionRuntime "tests\contracts\public_api_contract.json"
-    "SMC_TEST_RESULT" = Join-Path $profileRuntime "results\public_api.json"
+    "SMC_TEST_RESULT" = Join-Path $profileRuntime "results\$ResultName"
 }
 if ($PillowRoot) {
     $environment["SMC_TEST_PILLOW_ROOT"] = [IO.Path]::GetFullPath($PillowRoot)
@@ -119,7 +131,7 @@ finally {
 
 [PSCustomObject]@{
     ExitCode = $process.ExitCode
-    Result = Join-Path $profile "results\public_api.json"
+    Result = Join-Path $profile "results\$ResultName"
     StandardOutput = Join-Path $profile "results\blender.stdout.log"
     StandardError = Join-Path $profile "results\blender.stderr.log"
 }
