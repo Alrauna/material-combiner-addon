@@ -16,8 +16,6 @@ from bpy.props import (
     StringProperty,
 )
 
-from . import addon_updater_ops
-
 _SCENE_PROPS = (
     'smc_ob_data', 'smc_ob_data_id', 'smc_list_id', 'smc_size',
     'smc_size_width', 'smc_size_height', 'smc_crop', 'smc_pixel_art',
@@ -146,12 +144,14 @@ class UpdatePreferences(bpy.types.AddonPreferences):
     )
 
     def draw(self, context: bpy.types.Context) -> None:
-        """Draw the preferences panel.
+        """Explain the extension-managed update policy.
 
         Args:
             context: Current Blender context
         """
-        addon_updater_ops.update_settings_ui(self, context)
+        layout = self.layout
+        layout.label(text='Updates are managed by Blender Extensions.')
+        layout.label(text='Material Combiner never downloads updates at runtime.')
 
 
 def _register_scene_properties() -> None:

@@ -1,14 +1,13 @@
 """Registration module for the Material Combiner addon.
 
 This module handles the registration and unregistration of all Blender classes
-used by the addon. It also manages property annotations and initializes the 
-icon system and updater functionality.
+used by the addon. It also manages property annotations and initializes the
+icon system.
 """
 
 import bpy
 
 from . import (
-    addon_updater_ops,
     extend_lists,
     extend_types,
     globs,
@@ -45,12 +44,10 @@ def register_all() -> None:
     """Register all components of the addon.
     
     This is the main registration function called when the addon is enabled.
-    It registers all classes, initializes icons, and sets up the updater.
+    It registers all classes and initializes icons.
     """
     _register_classes()
     initialize_smc_icons()
-    addon_updater_ops.register()
-    addon_updater_ops.check_for_update_background()
     extend_types.register()
 
 
@@ -58,11 +55,10 @@ def unregister_all() -> None:
     """Unregister all components of the addon.
     
     This is the main unregistration function called when the addon is disabled.
-    It unregisters all classes, cleans up icons, and shuts down the updater.
+    It unregisters all classes and cleans up icons.
     """
     _unregister_classes()
     unload_smc_icons()
-    addon_updater_ops.unregister()
     extend_types.unregister()
 
 

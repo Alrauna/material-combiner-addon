@@ -57,9 +57,9 @@ def main() -> None:
     enabled = False
     try:
         package = importlib.import_module(MODULE)
-        package.registration.addon_updater_ops.check_for_update_background = (
-            lambda: None
-        )
+        updater = getattr(package.registration, "addon_updater_ops", None)
+        if updater is not None:
+            updater.check_for_update_background = lambda: None
         enable_result = bpy.ops.preferences.addon_enable(module=MODULE)
         enabled = enable_result == {"FINISHED"}
         assert enabled, enable_result

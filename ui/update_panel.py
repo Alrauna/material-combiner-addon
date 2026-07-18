@@ -1,18 +1,17 @@
-"""UI panel for displaying and managing addon updates.
+"""UI panel explaining how extension updates are managed.
 
-This module provides a panel in the Blender UI for checking, configuring,
-and installing updates for the Material Combiner addon.
+The addon does not make network requests or install its own updates at runtime.
 """
 
 import bpy
 
-from .. import addon_updater_ops, globs
+from .. import globs
 
 
 class UpdatePanel(bpy.types.Panel):
-    """Panel for managing addon updates.
+    """Panel describing Blender-managed extension updates.
 
-    This class implements a Blender panel that provides functionality for
+    This class implements a Blender panel that provides information about
     checking, configuring, and installing updates for the Material Combiner addon,
     using the addon updater API.
     """
@@ -30,4 +29,6 @@ class UpdatePanel(bpy.types.Panel):
         Args:
             context: The current Blender context.
         """
-        addon_updater_ops.update_settings_ui(self, context)
+        layout = self.layout
+        layout.label(text='Updates are managed by Blender Extensions.')
+        layout.label(text='Use Preferences > Extensions to update or reinstall.')

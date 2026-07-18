@@ -13,6 +13,8 @@ param(
 
     [switch]$ExcludeWheel,
 
+    [switch]$NoDriveAlias,
+
     [ValidatePattern("^[A-Z]$")]
     [string]$DriveLetter = "Q"
 )
@@ -54,13 +56,19 @@ if ($ExcludeWheel) {
 }
 
 $driveName = "$DriveLetter`:"
-$driveRoot = "$driveName\"
-if ((& subst) -match "(?m)^$([regex]::Escape($driveName))\\:") {
-    throw "Temporary drive alias already exists: $driveName"
+$driveMapped = -not $NoDriveAlias
+if ($driveMapped) {
+    $driveRoot = "$driveName\"
+    if ((& subst) -match "(?m)^$([regex]::Escape($driveName))\\:") {
+        throw "Temporary drive alias already exists: $driveName"
+    }
+    & subst $driveName $work
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create temporary drive alias $driveName for $work"
+    }
 }
-& subst $driveName $work
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to create temporary drive alias $driveName for $work"
+else {
+    $driveRoot = $work
 }
 
 $profileRuntime = Join-Path $driveRoot "profile"
@@ -116,7 +124,9 @@ try {
     $stderr = $stderrTask.Result
 }
 finally {
-    & subst $driveName /d
+    if ($driveMapped) {
+        & subst $driveName /d
+    }
 }
 [IO.File]::WriteAllText(
     (Join-Path $profile "results\blender.stdout.log"),
