@@ -268,4 +268,5 @@ def main() -> None:
     raise SystemExit(0 if report["valid"] else 1)
 
 
-main()
+if __name__ == "__main__":
+    main()
