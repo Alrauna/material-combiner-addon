@@ -285,8 +285,12 @@ def register() -> None:
     objects required by the Material Combiner addon. Called during addon
     registration.
     """
-    _register_scene_properties()
-    _register_material_properties()
+    try:
+        _register_scene_properties()
+        _register_material_properties()
+    except BaseException:
+        unregister()
+        raise
 
 
 def unregister() -> None:

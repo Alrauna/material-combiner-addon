@@ -54,6 +54,8 @@ def initialize_smc_icons() -> None:
     Must be called during addon registration before using any icon functions.
     """
     global smc_icons
+    if smc_icons is not None:
+        return
     smc_icons = bpy.utils.previews.new()
 
 
@@ -62,4 +64,8 @@ def unload_smc_icons() -> None:
 
     Should be called during addon unregistration to free resources.
     """
+    global smc_icons
+    if smc_icons is None:
+        return
     bpy.utils.previews.remove(smc_icons)
+    smc_icons = None
