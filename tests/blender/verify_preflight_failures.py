@@ -200,6 +200,8 @@ def _snapshot(directory: Path | None = None):
             material.name: material.root_mat.name if material.root_mat else None
             for material in bpy.data.materials
         },
+        "images": sorted(image.name for image in bpy.data.images),
+        "textures": sorted(texture.name for texture in bpy.data.textures),
         "objects": {
             obj.name: {
                 "slots": [material.name for material in obj.data.materials],
@@ -234,6 +236,21 @@ def _assert_cancelled_without_change(
     before = _snapshot(directory)
     result = function()
     assert result == {"CANCELLED"}, result
+    after = _snapshot(directory)
+    assert after == before, {"before": before, "after": after}
+
+
+def _assert_raises_without_change(
+    directory: Path | None,
+    function,
+) -> None:
+    before = _snapshot(directory)
+    try:
+        function()
+    except RuntimeError as exc:
+        assert "injected atlas finalize failure" in str(exc), exc
+    else:
+        raise AssertionError("injected failure did not propagate")
     after = _snapshot(directory)
     assert after == before, {"before": before, "after": after}
 
@@ -298,6 +315,29 @@ def _run_healthy_cases(report) -> None:
     assert unrelated.root_mat == materials[0]
     report["checks"]["oversize"] = True
     report["checks"]["cats_settings_operation_local"] = True
+
+    # Force a failure after UV, slot, polygon, datablock, and list mutations
+    # have begun. The entire attempted combine must roll back, including the
+    # hidden staged PNG and newly-created Blender datablocks.
+    _build_color_fixture()
+    bpy.ops.smc.refresh_ob_data()
+    operator_module = importlib.import_module(
+        f"{MODULE}.operators.combiner.combiner"
+    )
+    original_finalize = operator_module.finalize_comb_mats
+
+    def _fail_finalize(_build):
+        raise RuntimeError("injected atlas finalize failure")
+
+    operator_module.finalize_comb_mats = _fail_finalize
+    try:
+        _assert_raises_without_change(
+            output,
+            lambda: bpy.ops.smc.combiner(directory=str(output)),
+        )
+    finally:
+        operator_module.finalize_comb_mats = original_finalize
+    report["checks"]["post_mutation_failure_atomic"] = True
 
     operator_rna = bpy.ops.smc.combiner.get_rna_type()
     assert operator_rna.properties["directory"].subtype == "DIR_PATH"

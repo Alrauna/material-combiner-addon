@@ -17,6 +17,7 @@ from .combiner_ops import (
     assign_comb_mats,
     calculate_adjusted_size,
     clear_empty_mats,
+    clear_empty_mat_slots,
     clear_mats,
     ensure_pillow_available,
     get_atlas,
@@ -27,6 +28,7 @@ from .combiner_ops import (
     get_mats_uv,
     get_size,
     get_structure,
+    finalize_comb_mats,
     set_ob_mode,
     validate_ob_data,
 )
@@ -164,6 +166,7 @@ class Combiner(bpy.types.Operator):
     data = None
     mats_uv = None
     structure = None
+    empty_slots = None
 
     def execute(self, context: bpy.types.Context) -> Set[str]:
         """Run immutable checks, prepare inputs, and create the atlas."""
@@ -171,6 +174,7 @@ class Combiner(bpy.types.Operator):
         self.data = None
         self.mats_uv = None
         self.structure = None
+        self.empty_slots = None
 
         dependency = globs.refresh_dependency_status(
             cats_invocation=self.cats
@@ -193,6 +197,7 @@ class Combiner(bpy.types.Operator):
             )
 
         snapshot = _PreflightSnapshot(context)
+        build = None
         try:
             validation_message = self._prepare(context)
         except Exception:
@@ -209,16 +214,12 @@ class Combiner(bpy.types.Operator):
             scene.smc_gaps = 0
 
         try:
-            try:
-                self.structure = pack(
-                    get_size(scene, self.structure),
-                    scene.smc_packer_type,
-                )
-                size = get_atlas_size(self.structure)
-                atlas_size = calculate_adjusted_size(scene, size)
-            except Exception:
-                snapshot.restore(context)
-                raise
+            self.structure = pack(
+                get_size(scene, self.structure),
+                scene.smc_packer_type,
+            )
+            size = get_atlas_size(self.structure)
+            atlas_size = calculate_adjusted_size(scene, size)
 
             if max(atlas_size, default=0) > MAX_ATLAS_SIZE:
                 snapshot.restore(context)
@@ -232,12 +233,21 @@ class Combiner(bpy.types.Operator):
             scene.smc_save_path = directory
             atlas = get_atlas(scene, self.structure, atlas_size)
             align_uvs(scene, self.structure, atlas.size, size)
-            comb_mats = get_comb_mats(scene, atlas, self.mats_uv)
-            assign_comb_mats(scene, self.data, comb_mats)
+            build = get_comb_mats(scene, atlas, self.mats_uv)
+            assign_comb_mats(scene, self.data, build.materials)
             clear_mats(scene, self.mats_uv)
+            clear_empty_mat_slots(scene, self.empty_slots)
             bpy.ops.smc.refresh_ob_data()
+            finalize_comb_mats(build)
             self.report({"INFO"}, "Materials were combined")
             return {"FINISHED"}
+        except Exception:
+            try:
+                if build is not None and not build.committed:
+                    build.rollback()
+            finally:
+                snapshot.restore(context)
+            raise
         finally:
             if self.cats:
                 scene.smc_size = original_size
@@ -304,7 +314,11 @@ class Combiner(bpy.types.Operator):
             return "No materials selected"
 
         self.mats_uv = get_mats_uv(scene, self.data)
-        clear_empty_mats(scene, self.data, self.mats_uv)
+        self.empty_slots = clear_empty_mats(
+            scene,
+            self.data,
+            self.mats_uv,
+        )
         get_duplicates(self.mats_uv)
         self.structure = get_structure(scene, self.data, self.mats_uv)
 

@@ -392,8 +392,10 @@ def sort_materials(
     Returns:
         Materials grouped by texture/color combinations for atlas creation.
     """
-    # Reset material references
-    for mat in bpy.data.materials:
+    # Only reset materials participating in this combine operation. Root
+    # relationships on unrelated materials are part of the user's scene and
+    # must not be changed as a side effect of atlas preparation.
+    for mat in set(mat for mat in mat_list if mat):
         mat.root_mat = None
 
     mat_dict = cast(MatDict, defaultdict(list))

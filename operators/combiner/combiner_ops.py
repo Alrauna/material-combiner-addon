@@ -20,7 +20,9 @@ import math
 import os
 import random
 import re
+import uuid
 from collections import OrderedDict, defaultdict
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 
@@ -156,19 +158,37 @@ def get_mats_uv(scn: Scene, data: SMCObData) -> MatsUV:
     return mats_uv
 
 
-def clear_empty_mats(scn: Scene, data: SMCObData, mats_uv: MatsUV) -> None:
-    """Remove materials without valid UV coordinates.
+def clear_empty_mats(
+    scn: Scene,
+    data: SMCObData,
+    mats_uv: MatsUV,
+) -> List[Tuple[str, str]]:
+    """Filter materials without UVs without changing Blender datablocks.
+
+    The returned slots are removed only during the commit phase. This keeps
+    preparation side-effect free and makes later failures fully reversible.
 
     Args:
         scn: Current scene.
         data: Dictionary mapping object names to materials.
         mats_uv: Dictionary mapping object names to materials with UV coordinates.
     """
+    empty_slots = []
     for ob_n, item in data.items():
-        ob = scn.objects[ob_n]
-        for mat in item:
+        for mat in list(item):
             if mat not in mats_uv[ob_n]:
-                _delete_material(ob, mat.name)
+                empty_slots.append((ob_n, mat.name))
+                del item[mat]
+    return empty_slots
+
+
+def clear_empty_mat_slots(
+    scn: Scene,
+    empty_slots: Sequence[Tuple[str, str]],
+) -> None:
+    """Remove prepared empty slots during the atlas commit phase."""
+    for object_name, material_name in empty_slots:
+        _delete_material(scn.objects[object_name], material_name)
 
 
 def _delete_material(ob: bpy.types.Object, name: str) -> None:
@@ -589,7 +609,37 @@ def _get_scale_factors(atlas_size: Tuple[int, int], size: Tuple[int, int]) -> Tu
     return (1, 1 / aspect_ratio) if aspect_ratio > 1 else (aspect_ratio, 1)
 
 
-def get_comb_mats(scn: Scene, atlas: ImageType, mats_uv: MatsUV) -> CombMats:
+@dataclass
+class AtlasBuild:
+    """Staged atlas output and the Blender datablocks created for it."""
+
+    temporary_path: str
+    final_path: str
+    materials: CombMats = field(default_factory=dict)
+    texture: Optional[bpy.types.Texture] = None
+    image: Optional[bpy.types.Image] = None
+    committed: bool = False
+
+    def rollback(self) -> None:
+        """Remove staged output and every datablock created by this build."""
+        for material in list(self.materials.values()):
+            if material and material.name in bpy.data.materials:
+                bpy.data.materials.remove(material, do_unlink=True)
+        self.materials.clear()
+        if self.texture and self.texture.name in bpy.data.textures:
+            bpy.data.textures.remove(self.texture, do_unlink=True)
+        if self.image and self.image.name in bpy.data.images:
+            bpy.data.images.remove(self.image, do_unlink=True)
+        for path in (self.temporary_path,):
+            if path and os.path.exists(path):
+                os.remove(path)
+
+
+def get_comb_mats(
+    scn: Scene,
+    atlas: ImageType,
+    mats_uv: MatsUV,
+) -> AtlasBuild:
     """Create materials for the generated atlas.
 
     Args:
@@ -602,9 +652,32 @@ def get_comb_mats(scn: Scene, atlas: ImageType, mats_uv: MatsUV) -> CombMats:
     """
     unique_id = _get_unique_id(scn)
     layers = _get_layers(scn, mats_uv)
-    path = _save_atlas(scn, atlas, unique_id)
-    texture = _create_texture(path, unique_id)
-    return cast(CombMats, {idx: _create_material(texture, unique_id, idx) for idx in layers})
+    build = _stage_atlas(scn, atlas, unique_id)
+    try:
+        build.texture = _create_texture(build.temporary_path, unique_id)
+        build.image = build.texture.image
+        # Point the datablock at its eventual path before the atomic rename so
+        # the rename remains the final fallible operation.
+        build.image.filepath = build.final_path
+        build.materials = cast(
+            CombMats,
+            {
+                idx: _create_material(build.texture, unique_id, idx)
+                for idx in layers
+            },
+        )
+        return build
+    except Exception:
+        build.rollback()
+        raise
+
+
+def finalize_comb_mats(build: AtlasBuild) -> None:
+    """Atomically publish a staged atlas after Blender mutations succeed."""
+    if os.path.exists(build.final_path):
+        raise FileExistsError(build.final_path)
+    os.rename(build.temporary_path, build.final_path)
+    build.committed = True
 
 
 def _get_layers(scn: Scene, mats_uv: MatsUV) -> Set[int]:
@@ -688,8 +761,8 @@ def _add_ids_from_existing_files(scn: Scene, existed_ids: Set[int]) -> None:
             existed_ids.add(int(match.group(1)))
 
 
-def _save_atlas(scn: Scene, atlas: ImageType, unique_id: str) -> str:
-    """Save the atlas image to disk.
+def _stage_atlas(scn: Scene, atlas: ImageType, unique_id: str) -> AtlasBuild:
+    """Write and verify an atlas in its destination directory.
 
     Args:
         scn: Current scene.
@@ -697,11 +770,25 @@ def _save_atlas(scn: Scene, atlas: ImageType, unique_id: str) -> str:
         unique_id: Unique ID for the atlas.
 
     Returns:
-        Path to the saved atlas image.
+        The staged atlas build record.
     """
-    path = os.path.join(scn.smc_save_path, '{}{}.png'.format(atlas_prefix, unique_id))
-    atlas.save(path)
-    return path
+    final_path = os.path.join(
+        scn.smc_save_path,
+        '{}{}.png'.format(atlas_prefix, unique_id),
+    )
+    temporary_path = os.path.join(
+        scn.smc_save_path,
+        '.{}{}.{}.tmp'.format(atlas_prefix, unique_id, uuid.uuid4().hex),
+    )
+    build = AtlasBuild(temporary_path, final_path)
+    try:
+        atlas.save(temporary_path, format='PNG')
+        with Image.open(temporary_path) as staged:
+            staged.verify()
+        return build
+    except Exception:
+        build.rollback()
+        raise
 
 
 def _create_texture(path: str, unique_id: str) -> bpy.types.Texture:
