@@ -27,6 +27,7 @@ from itertools import chain
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 
 import bpy
+import numpy as np
 
 from ...globs import (
     CombineListTypes,
@@ -42,7 +43,7 @@ from ...type_annotations import (
     Structure,
     StructureItem,
 )
-from ...utils.images import get_image, get_packed_file
+from ...utils.images import ImageInput, get_image_input
 from ...utils.materials import (
     get_diffuse,
     get_image_from_material,
@@ -90,6 +91,8 @@ atlas_material_prefix = 'material_atlas_'
 MAX_UV_TILES_AXIS = 25
 MAX_UV_TILES_TOTAL = 625
 UV_SNAP_EPSILON = 1e-6
+MAX_ATLAS_PIXELS = 400_000_000
+MAX_ESTIMATED_WORKING_BYTES = 4 * 1024 * 1024 * 1024
 
 
 @dataclass
@@ -290,14 +293,16 @@ def get_size(scn: Scene, data: Structure) -> Dict:
     """
     for mat, item in data.items():
         img = _get_image(mat)
-        packed_file = get_packed_file(img)
+        image_input = get_image_input(img)
         max_x, max_y = _get_max_uv_coordinates(item['uv'])
         item['gfx']['uv_size'] = (max(max_x, 1), max(max_y, 1))
 
         if not scn.smc_crop:
             item['gfx']['uv_size'] = tuple(math.ceil(x) for x in item['gfx']['uv_size'])
 
-        if packed_file:
+        item['gfx']['source'] = image_input
+        if image_input:
+            _validate_image_input(image_input)
             img_size = _get_image_size(mat, img)
             item['gfx']['size'] = _calculate_size(img_size, item['gfx']['uv_size'], scn.smc_gaps)
         else:
@@ -337,7 +342,7 @@ def _get_image(mat: bpy.types.Material) -> Union[bpy.types.Image, None]:
     Returns:
         Image from the material or None if not found.
     """
-    return get_image_from_material(mat)
+    return get_image_from_material(mat, strict=True)
 
 
 def _get_image_size(mat: bpy.types.Material, img: bpy.types.Image) -> Tuple[int, int]:
@@ -453,6 +458,42 @@ def calculate_adjusted_size(scn: Scene, size: Tuple[int, int]) -> Tuple[int, int
     return size
 
 
+def validate_resource_budget(
+    structure: Structure,
+    atlas_size: Tuple[int, int],
+) -> int:
+    """Validate atlas pixels and a conservative sequential working-set estimate."""
+    atlas_pixels = int(atlas_size[0]) * int(atlas_size[1])
+    if atlas_pixels > MAX_ATLAS_PIXELS:
+        raise ValueError(
+            "Atlas exceeds the {:,}-pixel limit".format(MAX_ATLAS_PIXELS)
+        )
+
+    largest_source_working = 0
+    for item in structure.values():
+        source = item['gfx'].get('source')
+        if not isinstance(source, ImageInput):
+            continue
+        source_pixels = source.size[0] * source.size[1]
+        # Packed/file images need decoded RGBA plus Pillow working space.
+        # Generated images additionally require Blender's float pixel copy.
+        bytes_per_pixel = 20 if source.kind == 'GENERATED' else 8
+        source_working = (
+            source_pixels * bytes_per_pixel + source.encoded_size
+        )
+        largest_source_working = max(
+            largest_source_working,
+            source_working,
+        )
+
+    estimated = atlas_pixels * 8 + largest_source_working
+    if estimated > MAX_ESTIMATED_WORKING_BYTES:
+        raise ValueError(
+            "Estimated atlas working memory exceeds the 4 GiB limit"
+        )
+    return estimated
+
+
 def get_atlas(scn: Scene, data: Structure, atlas_size: Tuple[int, int]) -> ImageType:
     """Generate the texture atlas image.
 
@@ -493,8 +534,7 @@ def _set_image_or_color(item: StructureItem, mat: bpy.types.Material) -> None:
         item: Material metadata.
         mat: Material to extract image or color from.
     """
-    image = get_image_from_material(mat)
-    item['gfx']['img_or_color'] = get_packed_file(image) if image else None
+    item['gfx']['img_or_color'] = item['gfx'].get('source')
 
     if not item['gfx']['img_or_color']:
         item['gfx']['img_or_color'] = get_diffuse(mat)
@@ -523,7 +563,7 @@ def _paste_gfx(scn: Scene, item: StructureItem, mat: bpy.types.Material, img: Im
 
 
 def _get_gfx(scn: Scene, mat: bpy.types.Material, item: StructureItem,
-             img_or_color: Union[bpy.types.PackedFile, Tuple, None]) -> ImageType:
+             img_or_color: Union[ImageInput, Tuple, None]) -> ImageType:
     """Generate image data for a material.
 
     Creates an appropriate image based on whether the material has a texture
@@ -546,7 +586,7 @@ def _get_gfx(scn: Scene, mat: bpy.types.Material, item: StructureItem,
     if isinstance(img_or_color, tuple):
         return Image.new('RGBA', size, img_or_color)
 
-    img = Image.open(io.BytesIO(img_or_color.data)).convert("RGBA")
+    img = _decode_image_input(img_or_color)
     if img.size != size:
         img.resize(size, resampling)
     if mat.smc_size:
@@ -558,6 +598,47 @@ def _get_gfx(scn: Scene, mat: bpy.types.Material, item: StructureItem,
         img = ImageChops.multiply(img, diffuse_img)
 
     return img
+
+
+def _open_encoded_image(source: ImageInput):
+    """Open a fresh Pillow stream for a packed or file image."""
+    if source.kind == 'PACKED':
+        return Image.open(io.BytesIO(source.packed_file.data))
+    if source.kind == 'FILE':
+        return Image.open(source.path)
+    raise ValueError("Image input is not encoded")
+
+
+def _validate_image_input(source: ImageInput) -> None:
+    """Fully validate encoded input before atlas or Blender mutations begin."""
+    if source.kind == 'GENERATED':
+        return
+    with _open_encoded_image(source) as probe:
+        if probe.size != source.size:
+            raise ValueError("Image dimensions changed or are inconsistent")
+        probe.verify()
+    with _open_encoded_image(source) as decoded:
+        decoded.load()
+
+
+def _decode_image_input(source: ImageInput) -> ImageType:
+    """Decode one source to RGBA, keeping source processing sequential."""
+    if source.kind != 'GENERATED':
+        with _open_encoded_image(source) as decoded:
+            decoded.load()
+            return decoded.convert('RGBA')
+
+    width, height = source.size
+    pixels = np.empty(width * height * 4, dtype=np.float32)
+    source.image.pixels.foreach_get(pixels)
+    if not np.isfinite(pixels).all():
+        raise ValueError("Generated image contains non-finite pixels")
+    np.clip(pixels, 0.0, 1.0, out=pixels)
+    pixels *= 255.0
+    rgba = pixels.astype(np.uint8).reshape((height, width, 4))
+    return Image.fromarray(rgba, 'RGBA').transpose(
+        Image.Transpose.FLIP_TOP_BOTTOM
+    )
 
 
 def _get_uv_image(item: StructureItem, img: ImageType, size: Tuple[int, int]) -> ImageType:

@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import traceback
+from types import SimpleNamespace
 import urllib.request
 from pathlib import Path
 
@@ -71,7 +72,13 @@ def _write_input_png(path: Path, size, pixels) -> None:
     image.save(path)
 
 
-def _make_image_material(name: str, path: Path, *, diffuse=False):
+def _make_material_from_image(
+    name: str,
+    image: bpy.types.Image,
+    *,
+    diffuse=False,
+    input_name="Base Color",
+):
     material = bpy.data.materials.new(name)
     material.use_nodes = True
     material.diffuse_color = (1.0, 1.0, 1.0, 1.0)
@@ -80,23 +87,41 @@ def _make_image_material(name: str, path: Path, *, diffuse=False):
     output = nodes.new("ShaderNodeOutputMaterial")
     principled = nodes.new("ShaderNodeBsdfPrincipled")
     texture = nodes.new("ShaderNodeTexImage")
-    image = bpy.data.images.load(str(path))
-    image.pack()
     texture.image = image
     material.node_tree.links.new(
         texture.outputs["Color"],
-        principled.inputs["Base Color"],
+        principled.inputs[input_name],
     )
-    material.node_tree.links.new(
-        texture.outputs["Alpha"],
-        principled.inputs["Alpha"],
-    )
+    if input_name == "Base Color":
+        material.node_tree.links.new(
+            texture.outputs["Alpha"],
+            principled.inputs["Alpha"],
+        )
     material.node_tree.links.new(
         principled.outputs["BSDF"],
         output.inputs["Surface"],
     )
     material.smc_diffuse = diffuse
     return material
+
+
+def _make_image_material(
+    name: str,
+    path: Path,
+    *,
+    diffuse=False,
+    pack=True,
+    input_name="Base Color",
+):
+    image = bpy.data.images.load(str(path))
+    if pack:
+        image.pack()
+    return _make_material_from_image(
+        name,
+        image,
+        diffuse=diffuse,
+        input_name=input_name,
+    )
 
 
 def _make_color_material(name: str, rgba):
@@ -293,6 +318,214 @@ def _run_rectpack_rotation_case() -> dict:
     }
 
 
+def _select_pair(material_a, material_b, name):
+    objects = (
+        _make_plane(f"{name} A", -2.0, material_a),
+        _make_plane(f"{name} B", 2.0, material_b),
+    )
+    for obj in bpy.context.view_layer.objects:
+        obj.select_set(False)
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    return objects
+
+
+def _configure_safe_input_case():
+    scene = bpy.context.scene
+    scene.smc_packer_type = "BINARY_TREE"
+    scene.smc_size = "AUTO"
+    scene.smc_crop = False
+    scene.smc_pixel_art = True
+    scene.smc_gaps = 0
+    scene.smc_diffuse_size = 4
+
+
+def _run_input_source_cases() -> dict:
+    root = WORK / "input-sources"
+    root.mkdir(parents=True, exist_ok=True)
+    checks = {}
+
+    # Ordinary external files remain external and are never implicitly packed.
+    _clear_data()
+    external_dir = root / "external"
+    external_dir.mkdir(parents=True, exist_ok=True)
+    external_path = external_dir / "external.png"
+    PILImage.new("RGBA", (2, 2), (240, 40, 20, 255)).save(external_path)
+    external_material = _make_image_material(
+        "External File",
+        external_path,
+        pack=False,
+    )
+    external_image = next(
+        node.image
+        for node in external_material.node_tree.nodes
+        if node.bl_idname == "ShaderNodeTexImage"
+    )
+    _select_pair(
+        external_material,
+        _make_color_material("External Color", (0.1, 0.2, 0.3, 1.0)),
+        "External",
+    )
+    _configure_safe_input_case()
+    external_output = external_dir / "output"
+    external_output.mkdir(exist_ok=True)
+    assert bpy.ops.smc.combiner(directory=str(external_output)) == {"FINISHED"}
+    assert external_image.packed_file is None
+    checks["external_file_not_packed"] = True
+
+    # Non-float generated images contribute their pixels rather than a color fallback.
+    _clear_data()
+    generated_dir = root / "generated"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    generated = bpy.data.images.new(
+        "Generated Source",
+        width=2,
+        height=2,
+        alpha=True,
+        float_buffer=False,
+    )
+    generated.pixels = (
+        1.0, 0.0, 0.0, 1.0,
+        0.0, 1.0, 0.0, 1.0,
+        0.0, 0.0, 1.0, 1.0,
+        1.0, 1.0, 0.0, 1.0,
+    )
+    generated_material = _make_material_from_image(
+        "Generated Material",
+        generated,
+    )
+    _select_pair(
+        generated_material,
+        _make_color_material("Generated Color", (0.5, 0.5, 0.5, 1.0)),
+        "Generated",
+    )
+    _configure_safe_input_case()
+    generated_output = generated_dir / "output"
+    generated_output.mkdir(exist_ok=True)
+    assert bpy.ops.smc.combiner(directory=str(generated_output)) == {"FINISHED"}
+    with PILImage.open(next(generated_output.glob("Atlas_*.png"))) as atlas:
+        atlas_colors = set(atlas.getdata())
+    assert {(255, 0, 0, 255), (0, 255, 0, 255)}.issubset(atlas_colors)
+    checks["generated_pixels_used"] = True
+
+    def assert_rejected(case_name, material, image):
+        _select_pair(
+            material,
+            _make_color_material(f"{case_name} Color", (0.2, 0.3, 0.4, 1.0)),
+            case_name,
+        )
+        _configure_safe_input_case()
+        case_output = root / case_name / "output"
+        case_output.mkdir(parents=True, exist_ok=True)
+        assert bpy.ops.smc.combiner(directory=str(case_output)) == {"CANCELLED"}
+        assert not list(case_output.glob("Atlas_*.png"))
+        assert image.packed_file is None
+
+    # A texture wired to a non-albedo shader input is ambiguous and rejected.
+    _clear_data()
+    unsupported_dir = root / "unsupported-shader"
+    unsupported_dir.mkdir(parents=True, exist_ok=True)
+    unsupported_path = unsupported_dir / "roughness.png"
+    PILImage.new("RGBA", (2, 2), (100, 100, 100, 255)).save(unsupported_path)
+    unsupported_material = _make_image_material(
+        "Unsupported Shader",
+        unsupported_path,
+        pack=False,
+        input_name="Roughness",
+    )
+    unsupported_image = next(
+        node.image
+        for node in unsupported_material.node_tree.nodes
+        if node.bl_idname == "ShaderNodeTexImage"
+    )
+    assert_rejected(
+        "unsupported-shader",
+        unsupported_material,
+        unsupported_image,
+    )
+    checks["unsupported_shader_rejected"] = True
+
+    # A file that becomes truncated after Blender loads it is rejected on preflight.
+    _clear_data()
+    malformed_dir = root / "malformed"
+    malformed_dir.mkdir(parents=True, exist_ok=True)
+    malformed_path = malformed_dir / "malformed.png"
+    PILImage.new("RGBA", (2, 2), (30, 60, 90, 255)).save(malformed_path)
+    malformed_material = _make_image_material(
+        "Malformed File",
+        malformed_path,
+        pack=False,
+    )
+    malformed_image = next(
+        node.image
+        for node in malformed_material.node_tree.nodes
+        if node.bl_idname == "ShaderNodeTexImage"
+    )
+    malformed_path.write_bytes(b"\x89PNG\r\n\x1a\ntruncated")
+    assert_rejected("malformed", malformed_material, malformed_image)
+    checks["malformed_file_rejected"] = True
+
+    # Float generated buffers are outside the safe-core input policy.
+    _clear_data()
+    float_image = bpy.data.images.new(
+        "Float Generated",
+        width=2,
+        height=2,
+        alpha=True,
+        float_buffer=True,
+    )
+    float_material = _make_material_from_image("Float Material", float_image)
+    assert_rejected("float-generated", float_material, float_image)
+    checks["float_image_rejected"] = True
+
+    # UDIM/tiled sources are rejected even when Blender can create them.
+    _clear_data()
+    tiled_image = bpy.data.images.new(
+        "Tiled Source",
+        width=2,
+        height=2,
+        tiled=True,
+    )
+    tiled_material = _make_material_from_image("Tiled Material", tiled_image)
+    assert_rejected("tiled-source", tiled_material, tiled_image)
+    checks["tiled_image_rejected"] = True
+
+    # Exercise hard caps without allocating hostile-sized images.
+    ops = importlib.import_module(
+        f"{MODULE}.operators.combiner.combiner_ops"
+    )
+    images_module = importlib.import_module(f"{MODULE}.utils.images")
+    try:
+        images_module._validate_encoded_size(512 * 1024 * 1024 + 1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("encoded byte limit was not enforced")
+    try:
+        ops.validate_resource_budget({}, (20_001, 20_001))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("atlas pixel limit was not enforced")
+    synthetic_source = images_module.ImageInput(
+        image=SimpleNamespace(size=(10_000, 10_000)),
+        kind="GENERATED",
+    )
+    try:
+        ops.validate_resource_budget(
+            {"synthetic": {"gfx": {"source": synthetic_source}}},
+            (20_000, 20_000),
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("working memory limit was not enforced")
+    checks["resource_limits_enforced"] = True
+
+    return checks
+
+
 def main() -> None:
     global PILImage
     WORK.mkdir(parents=True, exist_ok=True)
@@ -328,6 +561,7 @@ def main() -> None:
         report["checks"]["rectpack_rotation"] = (
             _run_rectpack_rotation_case()
         )
+        report["checks"]["input_sources"] = _run_input_source_cases()
         assert PILImage.MAX_IMAGE_PIXELS == max_pixels
         assert ImageFile.LOAD_TRUNCATED_IMAGES == load_truncated
         report["checks"]["pillow_safety_defaults_unchanged"] = True

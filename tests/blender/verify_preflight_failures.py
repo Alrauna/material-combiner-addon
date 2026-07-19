@@ -370,10 +370,9 @@ def _run_healthy_cases(report) -> None:
         objects, _materials = _build_color_fixture()
         objects[0].data.uv_layers.active.data[0].uv.x = value
         bpy.ops.smc.refresh_ob_data()
-        _assert_raises_without_change(
+        _assert_cancelled_without_change(
             output,
             lambda: bpy.ops.smc.combiner(directory=str(output)),
-            None,
         )
         report["checks"][check_name] = True
 

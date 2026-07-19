@@ -30,10 +30,12 @@ from .combiner_ops import (
     get_structure,
     finalize_comb_mats,
     set_ob_mode,
+    validate_resource_budget,
     validate_ob_data,
 )
 
 MAX_ATLAS_SIZE = 20000
+MAX_PARTICIPATING_MATERIALS = 4096
 
 
 class _PreflightSnapshot:
@@ -200,6 +202,9 @@ class Combiner(bpy.types.Operator):
         build = None
         try:
             validation_message = self._prepare(context)
+        except ValueError as exc:
+            snapshot.restore(context)
+            return self._return_with_message("WARNING", str(exc))
         except Exception:
             snapshot.restore(context)
             raise
@@ -214,10 +219,14 @@ class Combiner(bpy.types.Operator):
             scene.smc_gaps = 0
 
         try:
-            self.structure = pack(
-                get_size(scene, self.structure),
-                scene.smc_packer_type,
-            )
+            try:
+                self.structure = pack(
+                    get_size(scene, self.structure),
+                    scene.smc_packer_type,
+                )
+            except ValueError as exc:
+                snapshot.restore(context)
+                return self._return_with_message("WARNING", str(exc))
             size = get_atlas_size(self.structure)
             atlas_size = calculate_adjusted_size(scene, size)
 
@@ -229,6 +238,12 @@ class Combiner(bpy.types.Operator):
                         *atlas_size
                     ),
                 )
+
+            try:
+                validate_resource_budget(self.structure, atlas_size)
+            except ValueError as exc:
+                snapshot.restore(context)
+                return self._return_with_message("WARNING", str(exc))
 
             scene.smc_save_path = directory
             atlas = get_atlas(scene, self.structure, atlas_size)
@@ -312,6 +327,14 @@ class Combiner(bpy.types.Operator):
         self.data = get_data(scene.smc_ob_data)
         if not self.data:
             return "No materials selected"
+
+        participating_materials = {
+            material
+            for object_materials in self.data.values()
+            for material in object_materials
+        }
+        if len(participating_materials) > MAX_PARTICIPATING_MATERIALS:
+            return "Selection exceeds the 4,096-material limit"
 
         self.mats_uv = get_mats_uv(scene, self.data)
         self.empty_slots = clear_empty_mats(
