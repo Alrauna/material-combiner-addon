@@ -50,8 +50,12 @@ unless a demonstrated Blender, import, packaging, or test failure requires it.
 
 - Keep `.local-references`, `.packaged-releases`, and `.codex-assessment`
   protected by `.gitignore`.
-- Do not read, publish, commit, quote, inventory, or otherwise reference the
-  contents of `.local-references` without explicit user instruction.
+- Minimal read-only inspection of `.local-references` is permitted when it is
+  necessary to prevent a regression or run an approved compatibility check.
+  The local CATS package and test assets may be used for those purposes. Do
+  not modify or extract files in place, broadly inventory or quote them, or
+  publish, commit, or document their contents or paths without explicit user
+  instruction.
 - Do not treat external archives, extracted upstream projects, old builds,
   Blender assets, or packaged ZIP files as source-of-truth code unless
   explicitly instructed.

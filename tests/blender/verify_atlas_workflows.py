@@ -526,6 +526,80 @@ def _run_input_source_cases() -> dict:
     return checks
 
 
+def _run_undo_repeatability_case() -> dict:
+    """Verify one-step datablock undo while successful PNGs remain external."""
+    objects = _build_fixture("undo-repeatability")
+    scene = bpy.context.scene
+    scene.smc_packer_type = "BINARY_TREE"
+    scene.smc_size = "AUTO"
+    scene.smc_crop = False
+    scene.smc_pixel_art = True
+    scene.smc_gaps = 0
+    scene.smc_diffuse_size = 8
+    bpy.context.preferences.edit.use_global_undo = True
+
+    output = WORK / "undo-repeatability" / "output"
+    output.mkdir(parents=True, exist_ok=True)
+    object_names = [obj.name for obj in objects]
+    before = {
+        "slots": {
+            obj.name: [material.name for material in obj.data.materials]
+            for obj in objects
+        },
+        "uvs": {
+            obj.name: [tuple(loop.uv) for loop in obj.data.uv_layers.active.data]
+            for obj in objects
+        },
+        "materials": sorted(material.name for material in bpy.data.materials),
+        "textures": sorted(texture.name for texture in bpy.data.textures),
+        "images": sorted(image.name for image in bpy.data.images),
+    }
+
+    assert bpy.ops.ed.undo_push(message="Material Combiner test baseline") == {
+        "FINISHED"
+    }
+    assert bpy.ops.smc.combiner(directory=str(output)) == {"FINISHED"}
+    first_path = output / "Atlas_00001.png"
+    assert first_path.is_file()
+    first_hash = hashlib.sha256(first_path.read_bytes()).hexdigest()
+    # Direct Python operator calls do not receive Blender's UI-managed undo
+    # boundary, so mirror the boundary supplied to a bl_options={'UNDO'}
+    # operator when invoked from the interface.
+    assert bpy.ops.ed.undo_push(message="Material Combiner operation") == {
+        "FINISHED"
+    }
+
+    assert bpy.ops.ed.undo() == {"FINISHED"}
+    objects = [bpy.data.objects[name] for name in object_names]
+    after_undo = {
+        "slots": {
+            obj.name: [material.name for material in obj.data.materials]
+            for obj in objects
+        },
+        "uvs": {
+            obj.name: [tuple(loop.uv) for loop in obj.data.uv_layers.active.data]
+            for obj in objects
+        },
+        "materials": sorted(material.name for material in bpy.data.materials),
+        "textures": sorted(texture.name for texture in bpy.data.textures),
+        "images": sorted(image.name for image in bpy.data.images),
+    }
+    assert after_undo == before, {"before": before, "after": after_undo}
+    assert first_path.is_file()
+    assert hashlib.sha256(first_path.read_bytes()).hexdigest() == first_hash
+
+    assert bpy.ops.smc.combiner(directory=str(output)) == {"FINISHED"}
+    second_path = output / "Atlas_00002.png"
+    assert second_path.is_file()
+    assert hashlib.sha256(first_path.read_bytes()).hexdigest() == first_hash
+    return {
+        "single_undo_restored_datablocks": True,
+        "png_retained_after_undo": first_path.name,
+        "repeat_output": second_path.name,
+        "first_output_not_overwritten": True,
+    }
+
+
 def main() -> None:
     global PILImage
     WORK.mkdir(parents=True, exist_ok=True)
@@ -562,6 +636,14 @@ def main() -> None:
             _run_rectpack_rotation_case()
         )
         report["checks"]["input_sources"] = _run_input_source_cases()
+        if os.environ.get("SMC_TEST_FOREGROUND") == "1":
+            report["checks"]["undo_repeatability"] = (
+                _run_undo_repeatability_case()
+            )
+        else:
+            report["checks"]["undo_repeatability"] = (
+                "requires foreground Blender context"
+            )
         assert PILImage.MAX_IMAGE_PIXELS == max_pixels
         assert ImageFile.LOAD_TRUNCATED_IMAGES == load_truncated
         report["checks"]["pillow_safety_defaults_unchanged"] = True

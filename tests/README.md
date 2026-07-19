@@ -21,9 +21,14 @@ The optional `PillowRoot` argument is only for the approved Stage 0 controlled
 dependency path. Release-package tests must omit it and verify Blender's
 extension-managed wheel path instead.
 
+Use the runner's `-Foreground` switch only for tests that require Blender's UI
+undo context, such as the atlas undo/repeatability checkpoint. The profile is
+still isolated, but Blender briefly opens a foreground window. Ordinary tests
+must remain in the default background mode.
+
 `public_api_contract.json` is the compatibility gate for registered classes,
 operators, RNA properties, CATS-facing Python symbols, naming behavior, and
 saved-file identifiers. `stage0_behavior.json` records golden outputs and
-confirmed historical defects. A later correction may update the disposition
-of a defect, but must retain the old evidence and add a regression test for the
-new behavior.
+confirmed historical defects. Corrected expectations belong in
+`corrected_behavior.json`; retain the old evidence and add a regression test
+for every corrected behavior.

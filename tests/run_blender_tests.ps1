@@ -15,6 +15,8 @@ param(
 
     [switch]$NoDriveAlias,
 
+    [switch]$Foreground,
+
     [ValidatePattern("^[A-Z]$")]
     [string]$DriveLetter = "Q"
 )
@@ -79,13 +81,18 @@ $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
-foreach ($argument in @(
+$blenderArguments = @(
     "--factory-startup",
-    "--disable-autoexec",
-    "--background",
+    "--disable-autoexec"
+)
+if (-not $Foreground) {
+    $blenderArguments += "--background"
+}
+$blenderArguments += @(
     "--python",
     (Join-Path $extensionRuntime $TestScript)
-)) {
+)
+foreach ($argument in $blenderArguments) {
     $start.ArgumentList.Add($argument)
 }
 
@@ -107,6 +114,9 @@ $environment = @{
 }
 if ($PillowRoot) {
     $environment["SMC_TEST_PILLOW_ROOT"] = [IO.Path]::GetFullPath($PillowRoot)
+}
+if ($Foreground) {
+    $environment["SMC_TEST_FOREGROUND"] = "1"
 }
 foreach ($key in $environment.Keys) {
     $start.Environment[$key] = $environment[$key]
