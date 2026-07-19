@@ -243,12 +243,14 @@ def _assert_cancelled_without_change(
 def _assert_raises_without_change(
     directory: Path | None,
     function,
+    expected: str | None,
 ) -> None:
     before = _snapshot(directory)
     try:
         function()
     except RuntimeError as exc:
-        assert "injected atlas finalize failure" in str(exc), exc
+        if expected:
+            assert expected in str(exc), exc
     else:
         raise AssertionError("injected failure did not propagate")
     after = _snapshot(directory)
@@ -334,10 +336,46 @@ def _run_healthy_cases(report) -> None:
         _assert_raises_without_change(
             output,
             lambda: bpy.ops.smc.combiner(directory=str(output)),
+            "injected atlas finalize failure",
         )
     finally:
         operator_module.finalize_comb_mats = original_finalize
     report["checks"]["post_mutation_failure_atomic"] = True
+
+    # UV discovery aligns copies and does not mutate live mesh UV vectors.
+    objects, _materials = _build_color_fixture()
+    bpy.ops.smc.refresh_ob_data()
+    combiner_ops = importlib.import_module(
+        f"{MODULE}.operators.combiner.combiner_ops"
+    )
+    uv_before = [
+        tuple(loop.uv)
+        for obj in objects
+        for loop in obj.data.uv_layers.active.data
+    ]
+    data = combiner_ops.get_data(scene.smc_ob_data)
+    combiner_ops.get_mats_uv(scene, data)
+    uv_after = [
+        tuple(loop.uv)
+        for obj in objects
+        for loop in obj.data.uv_layers.active.data
+    ]
+    assert uv_after == uv_before
+    report["checks"]["uv_preparation_uses_copies"] = True
+
+    for value, check_name in (
+        (float("inf"), "nonfinite_uv"),
+        (26.25, "uv_repeat_limit"),
+    ):
+        objects, _materials = _build_color_fixture()
+        objects[0].data.uv_layers.active.data[0].uv.x = value
+        bpy.ops.smc.refresh_ob_data()
+        _assert_raises_without_change(
+            output,
+            lambda: bpy.ops.smc.combiner(directory=str(output)),
+            None,
+        )
+        report["checks"][check_name] = True
 
     operator_rna = bpy.ops.smc.combiner.get_rna_type()
     assert operator_rna.properties["directory"].subtype == "DIR_PATH"

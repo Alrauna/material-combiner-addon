@@ -903,7 +903,8 @@ class RectPack2D:
                     'x': pack_data['x'],
                     'y': pack_data['y'],
                     'w': original_size[1] if pack_data['flipped'] else original_size[0],
-                    'h': original_size[0] if pack_data['flipped'] else original_size[1]
+                    'h': original_size[0] if pack_data['flipped'] else original_size[1],
+                    'rotated': pack_data['flipped'],
                 }
 
         return self.bin

@@ -27,7 +27,6 @@ from itertools import chain
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 
 import bpy
-import numpy as np
 
 from ...globs import (
     CombineListTypes,
@@ -88,6 +87,18 @@ except ImportError:
 atlas_prefix = 'Atlas_'
 atlas_texture_prefix = 'texture_atlas_'
 atlas_material_prefix = 'material_atlas_'
+MAX_UV_TILES_AXIS = 25
+MAX_UV_TILES_TOTAL = 625
+UV_SNAP_EPSILON = 1e-6
+
+
+@dataclass
+class UVLoopValue:
+    """An aligned UV copy paired with the live vector updated at commit."""
+
+    target: Any
+    x: float
+    y: float
 
 
 def validate_ob_data(data: Sequence[bpy.types.PropertyGroup]) -> Optional[Dict[str, Any]]:
@@ -154,7 +165,12 @@ def get_mats_uv(scn: Scene, data: SMCObData) -> MatsUV:
             if mat not in item:
                 continue
             for poly in polys:
-                mats_uv[ob_n][mat].extend(align_uv(get_uv(ob, poly)))
+                live_uvs = get_uv(ob, poly)
+                aligned_uvs = align_uv(live_uvs)
+                mats_uv[ob_n][mat].extend(
+                    UVLoopValue(live, aligned.x, aligned.y)
+                    for live, aligned in zip(live_uvs, aligned_uvs)
+                )
     return mats_uv
 
 
@@ -276,7 +292,7 @@ def get_size(scn: Scene, data: Structure) -> Dict:
         img = _get_image(mat)
         packed_file = get_packed_file(img)
         max_x, max_y = _get_max_uv_coordinates(item['uv'])
-        item['gfx']['uv_size'] = (np.clip(max_x, 1, 25), np.clip(max_y, 1, 25))
+        item['gfx']['uv_size'] = (max(max_x, 1), max(max_y, 1))
 
         if not scn.smc_crop:
             item['gfx']['uv_size'] = tuple(math.ceil(x) for x in item['gfx']['uv_size'])
@@ -357,12 +373,33 @@ def _get_max_uv_coordinates(uv_loops: List[bpy.types.MeshUVLoop]) -> Tuple[float
     max_y = 1
 
     for uv in uv_loops:
-        if not math.isnan(uv.x):
-            max_x = max(max_x, uv.x)
-        if not math.isnan(uv.y):
-            max_y = max(max_y, uv.y)
+        if not math.isfinite(uv.x) or not math.isfinite(uv.y):
+            raise ValueError("UV coordinates must be finite")
+        max_x = max(max_x, uv.x)
+        max_y = max(max_y, uv.y)
+
+    max_x = _snap_near_integer(max_x)
+    max_y = _snap_near_integer(max_y)
+    if max_x > MAX_UV_TILES_AXIS or max_y > MAX_UV_TILES_AXIS:
+        raise ValueError(
+            "UV repetition exceeds {} tiles on one axis".format(
+                MAX_UV_TILES_AXIS
+            )
+        )
+    if math.ceil(max_x) * math.ceil(max_y) > MAX_UV_TILES_TOTAL:
+        raise ValueError(
+            "UV repetition exceeds {} total tiles".format(
+                MAX_UV_TILES_TOTAL
+            )
+        )
 
     return max_x, max_y
+
+
+def _snap_near_integer(value: float) -> float:
+    """Snap floating-point noise near an integer tile boundary."""
+    nearest = round(value)
+    return float(nearest) if abs(value - nearest) <= UV_SNAP_EPSILON else value
 
 
 def _calculate_size(img_size: Tuple[int, int], uv_size: Tuple[int, int], gaps: int) -> Tuple[int, int]:
@@ -392,10 +429,11 @@ def get_atlas_size(structure: Structure) -> Tuple[int, int]:
     max_y = 1
 
     for item in structure.values():
-        max_x = max(max_x, item['gfx']['fit']['x'] + item['gfx']['size'][0])
-        max_y = max(max_y, item['gfx']['fit']['y'] + item['gfx']['size'][1])
+        fit = item['gfx']['fit']
+        max_x = max(max_x, fit['x'] + fit['w'])
+        max_y = max(max_y, fit['y'] + fit['h'])
 
-    return int(max_x), int(max_y)
+    return math.ceil(max_x), math.ceil(max_y)
 
 
 def calculate_adjusted_size(scn: Scene, size: Tuple[int, int]) -> Tuple[int, int]:
@@ -475,8 +513,11 @@ def _paste_gfx(scn: Scene, item: StructureItem, mat: bpy.types.Material, img: Im
     if not item['gfx']['fit']:
         return
 
+    gfx = _get_gfx(scn, mat, item, item['gfx']['img_or_color'])
+    if item['gfx']['fit'].get('rotated', False):
+        gfx = gfx.transpose(Image.Transpose.ROTATE_270)
     img.paste(
-        _get_gfx(scn, mat, item, item['gfx']['img_or_color']),
+        gfx,
         (int(item['gfx']['fit']['x'] + half_gaps), int(item['gfx']['fit']['y'] + half_gaps))
     )
 
@@ -567,24 +608,59 @@ def align_uvs(scn: Scene, data: Structure, atlas_size: Tuple[int, int], size: Tu
 
     for item in data.values():
         gfx_size = item['gfx']['size']
-        gfx_height = gfx_size[1]
+        fit = item['gfx']['fit']
+        _validate_fit(fit, size)
 
-        gfx_width_margin, gfx_height_margin = (x - margin for x in gfx_size)
+        content_width, content_height = (x - margin for x in gfx_size)
+        if content_width <= 0 or content_height <= 0:
+            raise ValueError("Atlas padding leaves no texture content")
 
         uv_width, uv_height = item['gfx']['uv_size']
-
-        x_offset = item['gfx']['fit']['x'] + border_margin
-        y_offset = item['gfx']['fit']['y'] - border_margin
+        rotated = fit.get('rotated', False)
 
         for uv in item['uv']:
-            reset_x = uv.x / uv_width * gfx_width_margin
-            reset_y = uv.y / uv_height * gfx_height_margin - gfx_height
+            local_u = uv.x / uv_width
+            local_v = uv.y / uv_height
+            if rotated:
+                local_u, local_v = local_v, 1 - local_u
+                placed_width = content_height
+                placed_height = content_width
+            else:
+                placed_width = content_width
+                placed_height = content_height
 
-            uv_x = (reset_x + x_offset) / size_width
-            uv_y = (reset_y - y_offset) / size_height
+            atlas_x = fit['x'] + border_margin + local_u * placed_width
+            atlas_y = (
+                size_height
+                - fit['y']
+                - fit['h']
+                + border_margin
+                + local_v * placed_height
+            )
+            uv.target.x = atlas_x / size_width * scaled_width
+            uv.target.y = atlas_y / size_height * scaled_height
 
-            uv.x = uv_x * scaled_width
-            uv.y = uv_y * scaled_height + 1
+
+def _validate_fit(fit: Dict[str, Any], size: Tuple[int, int]) -> None:
+    """Reject malformed, non-finite, or out-of-bounds packer output."""
+    required = ('x', 'y', 'w', 'h')
+    if not isinstance(fit, dict) or any(key not in fit for key in required):
+        raise ValueError("Packer returned an incomplete placement")
+    values = tuple(fit[key] for key in required)
+    if not all(isinstance(value, (int, float)) for value in values):
+        raise ValueError("Packer placement values must be numeric")
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Packer placement values must be finite")
+    x, y, width, height = values
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise ValueError("Packer placement has invalid bounds")
+    if x + width > size[0] or y + height > size[1]:
+        raise ValueError(
+            "Packer placement {} exceeds atlas bounds {}".format(
+                values,
+                size,
+            )
+        )
 
 
 def _get_scale_factors(atlas_size: Tuple[int, int], size: Tuple[int, int]) -> Tuple[float, float]:

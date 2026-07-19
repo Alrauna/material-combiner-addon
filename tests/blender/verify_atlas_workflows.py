@@ -22,6 +22,7 @@ WORK = RESULT.parent / "atlas-workflows"
 CONTRACT = Path(os.environ["SMC_TEST_CONTRACT"]).with_name(
     "stage0_behavior.json"
 )
+CORRECTED_CONTRACT = CONTRACT.with_name("corrected_behavior.json")
 NETWORK_ATTEMPTS: list[str] = []
 PROCESS_ATTEMPTS: list[str] = []
 PILImage = None
@@ -213,10 +214,90 @@ def _run_case(name: str, *, cats: bool, expected) -> dict:
     }
 
 
+def _sample_blender_uv(image, uv):
+    x = min(image.width - 1, max(0, int(uv.x * image.width)))
+    y = min(image.height - 1, max(0, int((1.0 - uv.y) * image.height)))
+    return image.getpixel((x, y))
+
+
+def _run_rectpack_rotation_case() -> dict:
+    """Verify rotated pixels and UVs agree for an asymmetric source."""
+    _clear_data()
+    root = WORK / "rectpack-rotation"
+    inputs = root / "inputs"
+    output = root / "output"
+    inputs.mkdir(parents=True, exist_ok=True)
+    output.mkdir(parents=True, exist_ok=True)
+
+    path_a = inputs / "wide.png"
+    path_b = inputs / "tall.png"
+    source_a = PILImage.new("RGBA", (8, 2))
+    for y in range(source_a.height):
+        for x in range(source_a.width):
+            source_a.putpixel((x, y), (20 + x * 20, 30 + y * 120, 70, 255))
+    source_a.save(path_a)
+    source_b = PILImage.new("RGBA", (3, 7), (10, 220, 180, 255))
+    source_b.save(path_b)
+
+    material_a = _make_image_material("Rotation Wide", path_a)
+    material_b = _make_image_material("Rotation Tall", path_b)
+    object_a = _make_plane("Rotation Plane Wide", -2.0, material_a)
+    object_b = _make_plane("Rotation Plane Tall", 2.0, material_b)
+    source_uvs = (
+        (0.0625, 0.25),
+        (0.4375, 0.25),
+        (0.6875, 0.75),
+        (0.9375, 0.75),
+    )
+    for loop, uv in zip(object_a.data.uv_layers.active.data, source_uvs):
+        loop.uv = uv
+
+    for obj in bpy.context.view_layer.objects:
+        obj.select_set(False)
+    object_a.select_set(True)
+    object_b.select_set(True)
+    bpy.context.view_layer.objects.active = object_a
+
+    scene = bpy.context.scene
+    scene.smc_packer_type = "RECT_PACK2D"
+    scene.smc_size = "AUTO"
+    scene.smc_crop = False
+    scene.smc_pixel_art = True
+    scene.smc_gaps = 0
+
+    assert bpy.ops.smc.combiner(directory=str(output)) == {"FINISHED"}
+    paths = sorted(output.glob("Atlas_*.png"))
+    assert len(paths) == 1, paths
+    with PILImage.open(paths[0]) as atlas:
+        atlas.load()
+        for loop, source_uv in zip(
+            object_a.data.uv_layers.active.data,
+            source_uvs,
+        ):
+            source_x = min(
+                source_a.width - 1,
+                int(source_uv[0] * source_a.width),
+            )
+            source_y = min(
+                source_a.height - 1,
+                int((1.0 - source_uv[1]) * source_a.height),
+            )
+            assert _sample_blender_uv(atlas, loop.uv) == source_a.getpixel(
+                (source_x, source_y)
+            )
+        dimensions = list(atlas.size)
+    assert dimensions == [5, 8], dimensions
+    return {
+        "dimensions": dimensions,
+        "clockwise_pixel_and_uv_rotation": True,
+    }
+
+
 def main() -> None:
     global PILImage
     WORK.mkdir(parents=True, exist_ok=True)
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    corrected = json.loads(CORRECTED_CONTRACT.read_text(encoding="utf-8"))
     report = {
         "blender": bpy.app.version_string,
         "checks": {},
@@ -237,12 +318,15 @@ def main() -> None:
         report["checks"]["standalone"] = _run_case(
             "standalone",
             cats=False,
-            expected=contract["standalone_golden_atlases"]["BINARY_TREE"],
+            expected=corrected["standalone_golden_atlases"]["BINARY_TREE"],
         )
         report["checks"]["cats_operator"] = _run_case(
             "cats-operator",
             cats=True,
             expected=contract["cats_golden_atlas"],
+        )
+        report["checks"]["rectpack_rotation"] = (
+            _run_rectpack_rotation_case()
         )
         assert PILImage.MAX_IMAGE_PIXELS == max_pixels
         assert ImageFile.LOAD_TRUNCATED_IMAGES == load_truncated
