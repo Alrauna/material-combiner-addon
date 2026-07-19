@@ -4,7 +4,7 @@ id = "shotariyas_material_combiner"
 version = "3.1.0-alpha.1"
 name = "Shotariya's Material Combiner"
 tagline = "Advanced texture atlas generation system for optimized rendering"
-maintainer = "Neoneko"
+maintainer = "Alrauna <67886220+Alrauna@users.noreply.github.com>"
 type = "add-on"
 
 blender_version_min = "5.2.0"
@@ -21,7 +21,7 @@ license = [
   "SPDX:MIT",
 ]
 
-website = "https://github.com/teamneoneko/material-combiner-addon"
+website = "https://github.com/Alrauna/material-combiner-addon"
 
 tags = [
   "Material",
@@ -35,8 +35,50 @@ files = "Import/export texture atlases and manage external files"
 [build]
 paths_exclude_pattern = [
   "__pycache__/",
+  "*.py[cod]",
+  "*$py.class",
   ".*",
+  "*.so",
+  "build/",
+  "develop-eggs/",
+  "dist/",
+  "downloads/",
+  "eggs/",
+  "lib/",
+  "lib64/",
+  "parts/",
+  "sdist/",
+  "var/",
+  "*.egg-info/",
+  "*.egg",
+  "MANIFEST",
+  "*.manifest",
+  "*.spec",
   "*.zip",
+  "pip-log.txt",
+  "pip-delete-this-directory.txt",
+  "htmlcov/",
+  "nosetests.xml",
+  "coverage.xml",
+  "*.cover",
+  "*.mo",
+  "*.pot",
+  "*.log",
+  "local_settings.py",
+  "db.sqlite3",
+  "instance/",
+  "docs/_build/",
+  "target/",
+  "celerybeat-schedule",
+  "*.sage.py",
+  "env/",
+  "venv/",
+  "ENV/",
+  "env.bak/",
+  "venv.bak/",
+  "*.env",
+  "/site/",
+  "material-combiner-addon_updater/",
   "BLENDER_5_0_COMPATIBILITY_ANALYSIS.md",
   "tests/",
 ]

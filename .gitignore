@@ -36,6 +36,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.zip
 MANIFEST
 
 # PyInstaller
@@ -106,3 +107,9 @@ venv.bak/
 
 # Material Combiner Addon Specific
 material-combiner-addon_updater/
+BLENDER_5_0_COMPATIBILITY_ANALYSIS.md
+
+# Codex Specific
+.local-references
+.packaged-releases
+.codex-assessment/
