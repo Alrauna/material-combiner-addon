@@ -1,17 +1,13 @@
 material-combiner-addon
 ===========
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/teamneoneko/material-combiner-addon)](https://github.com/teamneoneko/material-combiner-addon/releases/latest)
-[![GitHub issues](https://img.shields.io/github/issues/teamneoneko/material-combiner-addon)](https://github.com/teamneoneko/material-combiner-addon/issues)
-[![GitHub stars](https://img.shields.io/github/stars/teamneoneko/material-combiner-addon)](https://github.com/teamneoneko/material-combiner-addon/stargazers)
-
-> **Originally created by [Grim-es](https://github.com/Grim-es/material-combiner-addon)** | **Currently maintained by Team Neoneko**
+> **Originally created by [Grim-es](https://github.com/Grim-es/material-combiner-addon)** | **Previously maintained by [Team Neoneko](https://github.com/teamneoneko/material-combiner-addon)** | **Currently maintained by [Alrauna](https://github.com/Alrauna/material-combiner-addon)**
 
 #### An add-on for Blender 5.2 LTS that helps reduce draw calls in game engines by combining textures without quality loss and avoiding issues with UV bounds larger than 0–1.
 
-> **⚠️ Current alpha: Blender 5.2 LTS on Windows x64 only.** Other platform packages require native validation before they can be published.
+> **⚠️ Blender 5.2 LTS on Windows x64 only.** Other platform packages require native validation before they can be published.
 
-> **We want to make it clear, unlike other addons we forked material combiner is still maintained, but our focus is on Blender 5.x and not earlier versions**
+> **Note:** This add-on is actively maintained, with focus on Blender 5.x. Earlier Blender versions are not supported.
 
 ## FEATURES
 
@@ -25,7 +21,7 @@ material-combiner-addon
 
 ## INSTALLATION
 
-1. Download the latest release from the [Releases tab](https://github.com/teamneoneko/material-combiner-addon/releases).
+1. Download the latest release from the [Releases tab](https://github.com/Alrauna/material-combiner-addon/releases).
 2. In Blender 5.2 LTS, go to Edit > Preferences > Extensions.
 3. Click **Install from Disk**.
 4. Select the downloaded `.zip` file.
@@ -33,7 +29,7 @@ material-combiner-addon
 6. Material Combiner includes its required Pillow dependency. Do not install
    Pillow with pip or modify Blender's bundled Python.
 
-## HOW OT USE
+## HOW TO USE
 
 1. Once the add-on is installed and activated, go to the 3D Viewport in Blender.
 2. On the right side of the 3D View (Scene) window, open the side panel by pressing the `N` key on your keyboard.
@@ -47,7 +43,7 @@ material-combiner-addon
 6. Once you have made your selections, click the `Save atlas to..` button to start the atlasing process.
 7. If the materials are not merged properly or the atlas image does not contain all the textures, please refer to the
    section:
-   [After clicking "Save atlas to…" the materials are simply merged or the atlas image does not have all the textures](https://github.com/Grim-es/material-combiner-addon/tree/master?tab=readme-ov-file#after-clicking-save-atlas-to-the-materials-are-simply-merged-or-the-atlas-image-does-not-have-all-the-textures).
+   [After clicking "Save atlas to…" the materials are simply merged or the atlas image does not have all the textures](#after-clicking-save-atlas-to-the-materials-are-simply-merged-or-the-atlas-image-does-not-have-all-the-textures).
 
 ## KNOWN ISSUES
 
@@ -58,10 +54,10 @@ material-combiner-addon
 - Your version of Blender is not in English, in this case the nodes will be named differently, their names are strictly
   written in the script. You need to manually rename the nodes to their own names, or switch the blender version to
   English and regenerate the nodes by re-importing the model.
-- You are using an unsupported shader (Surface property of material) or incorrect node names. You can check the
-  file [utils/materials.py](https://github.com/Grim-es/material-combiner-addon/blob/781d70fbbc2ddfa6813c61255c0cb6c501307a3e/utils/materials.py#L19-L40)
-  to see which shaders are supported and what node names should be used. For more details, refer to the relevant
-  discussion on GitHub: [Issue #98](https://github.com/Grim-es/material-combiner-addon/issues/98).
+- You are using an unsupported shader (Surface property of material) or incorrect node names. You can check
+  [utils/materials.py](utils/materials.py) to see which shaders are supported and what node names should be used. For
+  more background, refer to the original discussion on GitHub:
+  [Issue #98](https://github.com/Grim-es/material-combiner-addon/issues/98).
 - If objects already share the same material with the same texture, they will not be atlased because they are already
   optimized, and the existing image will be used instead.
 
@@ -85,9 +81,12 @@ Python to repair Material Combiner.
 
 ### No module named 'material-combiner-addon-2'
 
-You have installed the source code from the Releases. Instead, install from the "master"
-branch [Material-combiner](https://github.com/Grim-es/material-combiner-addon/archive/master.zip). Before doing so,
-remove the old installation folder. The default locations are:
+You have installed the source code instead of the packaged extension. Download the packaged `.zip` from the
+[Releases tab](https://github.com/Alrauna/material-combiner-addon/releases) and install it through
+**Preferences > Extensions > Install from Disk**. A source checkout does not include the bundled Pillow wheel and will
+not work.
+
+Before doing so, remove any old add-on installation folder. The default locations are:
 
 * **Windows**
     ```console
@@ -105,5 +104,5 @@ remove the old installation folder. The default locations are:
 ## BUGS / SUGGESTIONS
 
 If you have found a bug or have suggestions to improve the tool, please report them via:
-- **GitHub Issues**: [Report an issue](https://github.com/teamneoneko/material-combiner-addon/issues)
-- **Discord**: Join our [Discord server](https://discord.neoneko.xyz/)
+- **GitHub Issues**: [Report an issue](https://github.com/Alrauna/material-combiner-addon/issues)
+- **Discord**: Coming soon.
