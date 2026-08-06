@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "repository": "Alrauna/Cats-Blender-Plugin",
+  "release_tag": "v5.2.0-alpha.1",
+  "asset_name": "cats-blender-plugin-5.2.0-alpha.1.zip",
+  "asset_sha256": "4c76c0351dbab333c7f571cbc9f1ad4ec98ee07af81e4a4985964a45a49dfa3a",
+  "asset_size": 1282884,
+  "extension_id": "cats_blender_plugin",
+  "extension_zip_name": "cats_blender_plugin.zip",
+  "extension_sha256": "a678b45461243cd73c8aa59c03f93b1aa7ffb5bec5665d7c1761955b7076d8d3",
+  "extension_size": 1304064,
+  "extension_version": "5.2.0-alpha.1",
+  "notes": [
+    "The release asset is a wrapper: a ZIP whose single entry is the installable extension ZIP. Blender cannot install the wrapper directly, so fetch_cats.py unwraps it.",
+    "Verified on 2026-08-06 against Material Combiner 3.1.0: the CATS integration, restart, and uninstall checkpoint all pass with this build.",
+    "Hash drift is reported as a warning, not a failure, because the CATS repository has not yet adopted the same release automation. Set HASH_MISMATCH_IS_FATAL in tools/fetch_cats.py to make it blocking."
+  ]
+}

@@ -60,7 +60,15 @@ Original scope, for reference:
   is not a given and must be measured, not assumed.
 - Update `THIRD_PARTY.md` and the README platform statements.
 
-### 3. CATS download
+### 3. CATS download (complete)
+
+`tools/fetch_cats.py` plus `tools/cats_reference.json`. The published asset
+turned out to be a wrapper ZIP containing the installable extension ZIP, which
+Blender cannot install directly; the tool unwraps it. The unwrapped build
+passes the full checkpoint, so no CATS evidence needed re-baselining after all.
+Drift warns by default; `--strict` or `HASH_MISMATCH_IS_FATAL` makes it fail.
+
+Original scope, for reference:
 
 - Resolve the latest release of `Alrauna/Cats-Blender-Plugin`, download the
   asset, and verify its SHA-256 against a recorded value.

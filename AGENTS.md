@@ -210,7 +210,9 @@ Linux:
   dependency, and atlas checks.
 - `package` mode for an installed extension package.
 - `checkpoint` mode for approved CATS integration, restart, and uninstall
-  checks.
+  checks. Obtain the CATS archive with `tools/fetch_cats.py`, which unwraps
+  the published release asset and reports hash drift. Drift warns rather than
+  fails until the CATS repository adopts matching release automation.
 
 The atlas undo and repeatability check needs `source --foreground`. In
 background mode it reports that it requires a foreground context instead of

@@ -43,6 +43,24 @@ python tests/run_tests.py \
 `--cats-sha256` is optional but should always be supplied; the run is refused
 if the archive does not match.
 
+`tools/fetch_cats.py` produces that archive:
+
+```
+python tools/fetch_cats.py --output-dir /tmp/cats
+```
+
+It resolves the latest release of the repository recorded in
+`tools/cats_reference.json`, downloads the asset, and unwraps it. The
+published asset is a wrapper whose single entry is the installable extension
+ZIP, which Blender cannot install directly. The tool prints the unwrapped
+archive path and its SHA-256 for the runner to consume.
+
+Hash or tag drift is reported as a warning and does not fail, because the CATS
+repository has not yet adopted the same release automation. Pass `--strict`,
+or set `HASH_MISMATCH_IS_FATAL` in the tool, to make drift blocking. An
+unexpected extension id always fails, since the checkpoint could not enable it
+anyway. Use `--archive` to run offline from a local copy.
+
 ## Options
 
 - `--exclude-wheel` (source) drops the bundled wheels, for the
