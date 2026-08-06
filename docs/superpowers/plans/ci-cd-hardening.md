@@ -41,8 +41,9 @@ links zlib-ng on Windows and stock zlib on Linux. Goldens now assert pixel
 content, with the file hashes retained as evidence. `linux-x64` is declared
 in the manifest on the strength of a full atlas-suite pass on real Linux.
 
-**2b — cross-platform Python test runner (outstanding).** Required before CI
-can cover Linux.
+**2b — cross-platform Python test runner (complete).** `tests/run_tests.py`
+replaces the three PowerShell runners with `source`, `package`, and
+`checkpoint` modes. Verified on Windows and Linux. CI can now cover both.
 
 Original scope, for reference:
 
