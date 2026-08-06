@@ -1,14 +1,10 @@
 """Main combiner operator for the Material Combiner addon.
 
-This module provides the primary operator class for the Material Combiner addon.
-It orchestrates the entire material combining process, from selecting materials
-to generating the final atlas and updating UV coordinates. The Combiner operator
-manages the main workflow and delegates specific tasks to specialized functions.
-
-Usage example:
-    bpy.ops.smc.combiner(directory=r"/path/to/save/directory")
+This module coordinates selection validation, atlas preparation, image output,
+UV updates, and material reassignment.
 """
 
+import os
 from typing import Set
 
 import bpy
@@ -21,7 +17,9 @@ from .combiner_ops import (
     assign_comb_mats,
     calculate_adjusted_size,
     clear_empty_mats,
+    clear_empty_mat_slots,
     clear_mats,
+    ensure_pillow_available,
     get_atlas,
     get_atlas_size,
     get_comb_mats,
@@ -30,25 +28,125 @@ from .combiner_ops import (
     get_mats_uv,
     get_size,
     get_structure,
+    finalize_comb_mats,
     set_ob_mode,
+    validate_resource_budget,
     validate_ob_data,
 )
 
 MAX_ATLAS_SIZE = 20000
+MAX_PARTICIPATING_MATERIALS = 4096
+
+
+class _PreflightSnapshot:
+    """State touched by legacy preparation before atlas creation begins."""
+
+    _MODE_MAP = {
+        "EDIT_MESH": "EDIT",
+        "EDIT_CURVE": "EDIT",
+        "EDIT_SURFACE": "EDIT",
+        "EDIT_TEXT": "EDIT",
+        "EDIT_ARMATURE": "EDIT",
+        "EDIT_METABALL": "EDIT",
+        "EDIT_LATTICE": "EDIT",
+        "PAINT_WEIGHT": "WEIGHT_PAINT",
+        "PAINT_VERTEX": "VERTEX_PAINT",
+        "PAINT_TEXTURE": "TEXTURE_PAINT",
+    }
+
+    def __init__(self, context: bpy.types.Context) -> None:
+        scene = context.scene
+        self.save_path = scene.smc_save_path
+        self.size = scene.smc_size
+        self.gaps = scene.smc_gaps
+        self.list_id = scene.smc_list_id
+        self.ob_data_id = scene.smc_ob_data_id
+        self.list_entries = [
+            (
+                item.ob,
+                item.ob_id,
+                item.mat,
+                item.layer,
+                item.used,
+                item.type,
+            )
+            for item in scene.smc_ob_data
+        ]
+        self.active = context.view_layer.objects.active
+        self.mode = context.mode
+        self.selection = {
+            obj: obj.select_get() for obj in context.view_layer.objects
+        }
+        self.roots = {mat: mat.root_mat for mat in bpy.data.materials}
+        self.meshes = []
+        for obj in scene.objects:
+            if obj.type != "MESH":
+                continue
+            uv_layer = obj.data.uv_layers.active
+            uv_values = (
+                [(loop.uv.x, loop.uv.y) for loop in uv_layer.data]
+                if uv_layer
+                else None
+            )
+            self.meshes.append(
+                (
+                    obj,
+                    list(obj.data.materials),
+                    [poly.material_index for poly in obj.data.polygons],
+                    uv_values,
+                )
+            )
+
+    def restore(self, context: bpy.types.Context) -> None:
+        """Restore state after a cancelled or failed preflight."""
+        scene = context.scene
+        scene.smc_save_path = self.save_path
+        scene.smc_size = self.size
+        scene.smc_gaps = self.gaps
+        scene.smc_list_id = self.list_id
+        scene.smc_ob_data_id = self.ob_data_id
+
+        for material, root in self.roots.items():
+            if material.root_mat != root:
+                material.root_mat = root
+
+        for obj, materials, indices, uv_values in self.meshes:
+            if list(obj.data.materials) != materials:
+                obj.data.materials.clear()
+                for material in materials:
+                    obj.data.materials.append(material)
+            for polygon, material_index in zip(obj.data.polygons, indices):
+                if polygon.material_index != material_index:
+                    polygon.material_index = material_index
+            if uv_values is not None and obj.data.uv_layers.active:
+                for loop, (x, y) in zip(
+                    obj.data.uv_layers.active.data, uv_values
+                ):
+                    if loop.uv.x != x or loop.uv.y != y:
+                        loop.uv = (x, y)
+
+        scene.smc_ob_data.clear()
+        for values in self.list_entries:
+            entry = scene.smc_ob_data.add()
+            entry.ob = values[0]
+            entry.ob_id = values[1]
+            entry.mat = values[2]
+            entry.layer = values[3]
+            entry.used = values[4]
+            entry.type = values[5]
+
+        for obj in context.view_layer.objects:
+            selected = self.selection.get(obj, False)
+            if obj.select_get() != selected:
+                obj.select_set(selected)
+        context.view_layer.objects.active = self.active
+        target_mode = self._MODE_MAP.get(self.mode, self.mode)
+        if self.active and context.mode != self.mode:
+            bpy.ops.object.mode_set(mode=target_mode)
 
 
 class Combiner(bpy.types.Operator):
-    """Main operator for combining materials into a texture atlas.
-
-    This operator manages the complete workflow for texture atlas generation:
-    1. Validating user selections.
-    2. Analyzing materials and textures.
-    3. Detecting and handling duplicates.
-    4. Generating the texture atlas.
-    5. Adjusting UV coordinates.
-    6. Assigning new materials.
-    7. Cleaning up unneeded materials.
-    """
+    """Combine selected materials into a texture atlas."""
 
     bl_idname = "smc.combiner"
     bl_label = "Create Atlas"
@@ -56,151 +154,217 @@ class Combiner(bpy.types.Operator):
     bl_options = {"UNDO", "INTERNAL"}
 
     directory = StringProperty(
-        description="Directory to save the atlas", maxlen=1024, default="", subtype="FILE_PATH", options={"HIDDEN"}
+        description="Directory to save the atlas",
+        maxlen=1024,
+        default="",
+        subtype="DIR_PATH",
+        options={"HIDDEN"},
     )
     filter_glob = StringProperty(default="", options={"HIDDEN"})
-    cats = BoolProperty(description="Enable special cats workflow mode", default=False)
+    cats = BoolProperty(
+        description="Enable special cats workflow mode",
+        default=False,
+    )
     data = None
     mats_uv = None
     structure = None
+    empty_slots = None
 
     def execute(self, context: bpy.types.Context) -> Set[str]:
-        """Execute the material combining operation.
+        """Run immutable checks, prepare inputs, and create the atlas."""
+        scene = context.scene
+        self.data = None
+        self.mats_uv = None
+        self.structure = None
+        self.empty_slots = None
 
-        This method handles the final stages of the combining process:
-        1. Packing textures using bin packing algorithm.
-        2. Calculating appropriate atlas dimensions.
-        3. Generating atlas image.
-        4. Remapping UV coordinates.
-        5. Creating and assigning new materials.
-        6. Cleaning up unused materials.
-
-        Args:
-            context: Current Blender context.
-
-        Returns:
-            Set containing operation status.
-        """
-        if not self.data:
-            self.invoke(context, None)
-        scn = context.scene
-
-        if not self.directory:
-            return self._return_with_message("ERROR", "No directory selected")
-
-        scn.smc_save_path = self.directory
-        self.structure = pack(
-            get_size(scn, self.structure), scn.smc_packer_type
+        dependency = globs.refresh_dependency_status(
+            cats_invocation=self.cats
         )
-
-        size = get_atlas_size(self.structure)
-        atlas_size = calculate_adjusted_size(scn, size)
-
-        if max(atlas_size, default=0) > MAX_ATLAS_SIZE:
-            self.report(
-                {"ERROR"},
-                "The output image size of {}x{}px is too large".format(
-                    *atlas_size
-                ),
+        if not dependency.healthy:
+            return self._return_with_message(
+                "WARNING",
+                f"Pillow dependency unavailable: {dependency.summary}",
             )
-            return {"FINISHED"}
+        ensure_pillow_available()
 
-        atlas = get_atlas(scn, self.structure, atlas_size)
-        align_uvs(scn, self.structure, atlas.size, size)
-        comb_mats = get_comb_mats(scn, atlas, self.mats_uv)
-        assign_comb_mats(scn, self.data, comb_mats)
-        clear_mats(scn, self.mats_uv)
-        bpy.ops.smc.refresh_ob_data()
-        self.report({"INFO"}, "Materials were combined")
-        return {"FINISHED"}
+        directory = bpy.path.abspath(self.directory).strip()
+        if not directory:
+            return self._return_with_message(
+                "WARNING", "No directory selected"
+            )
+        if not os.path.isdir(directory):
+            return self._return_with_message(
+                "WARNING", "The selected output directory does not exist"
+            )
+
+        snapshot = _PreflightSnapshot(context)
+        build = None
+        try:
+            validation_message = self._prepare(context)
+        except ValueError as exc:
+            snapshot.restore(context)
+            return self._return_with_message("WARNING", str(exc))
+        except Exception:
+            snapshot.restore(context)
+            raise
+        if validation_message:
+            snapshot.restore(context)
+            return self._return_with_message("WARNING", validation_message)
+
+        original_size = scene.smc_size
+        original_gaps = scene.smc_gaps
+        if self.cats:
+            scene.smc_size = "PO2"
+            scene.smc_gaps = 0
+
+        try:
+            try:
+                self.structure = pack(
+                    get_size(scene, self.structure),
+                    scene.smc_packer_type,
+                )
+            except ValueError as exc:
+                snapshot.restore(context)
+                return self._return_with_message("WARNING", str(exc))
+            size = get_atlas_size(self.structure)
+            atlas_size = calculate_adjusted_size(scene, size)
+
+            if max(atlas_size, default=0) > MAX_ATLAS_SIZE:
+                snapshot.restore(context)
+                return self._return_with_message(
+                    "WARNING",
+                    "The output image size of {}x{}px is too large".format(
+                        *atlas_size
+                    ),
+                )
+
+            try:
+                validate_resource_budget(self.structure, atlas_size)
+            except ValueError as exc:
+                snapshot.restore(context)
+                return self._return_with_message("WARNING", str(exc))
+
+            scene.smc_save_path = directory
+            atlas = get_atlas(scene, self.structure, atlas_size)
+            align_uvs(scene, self.structure, atlas.size, size)
+            build = get_comb_mats(scene, atlas, self.mats_uv)
+            assign_comb_mats(scene, self.data, build.materials)
+            clear_mats(scene, self.mats_uv)
+            clear_empty_mat_slots(scene, self.empty_slots)
+            bpy.ops.smc.refresh_ob_data()
+            finalize_comb_mats(build)
+            self.report({"INFO"}, "Materials were combined")
+            return {"FINISHED"}
+        except Exception:
+            try:
+                if build is not None and not build.committed:
+                    build.rollback()
+            finally:
+                snapshot.restore(context)
+            raise
+        finally:
+            if self.cats:
+                scene.smc_size = original_size
+                scene.smc_gaps = original_gaps
 
     def invoke(
-        self, context: bpy.types.Context, event: bpy.types.Event
+        self,
+        context: bpy.types.Context,
+        event: bpy.types.Event,
     ) -> Set[str]:
-        """Initialize the combiner and validate inputs.
-
-        This method performs the initial setup and validation:
-        1. Refreshing object data.
-        2. Validating selected objects and materials.
-        3. Setting up special options for specific workflows.
-        4. Preparing material and UV data.
-        5. Detecting and handling duplicate materials.
-        6. Opening the file browser for saving the atlas.
-
-        Args:
-            context: Current Blender context.
-            event: Triggered event.
-
-        Returns:
-            Set containing operation status.
-        """
-        scn = context.scene
-        bpy.ops.smc.refresh_ob_data()
-
-        validation_result = validate_ob_data(scn.smc_ob_data)
-        if validation_result:
-            return self._return_with_message(
-                "ERROR", "No valid objects selected"
-            )
-        if self.cats:
-            scn.smc_size = "PO2"
-            scn.smc_gaps = 0
-
-        set_ob_mode(
-            context.view_layer,
-            scn.smc_ob_data,
+        """Validate without atlas mutations, then open directory selection."""
+        dependency = globs.refresh_dependency_status(
+            cats_invocation=self.cats
         )
-        self.data = get_data(scn.smc_ob_data)
-
-        if not self.data:
-            return self._return_with_message("ERROR", "No materials selected")
-
-        self.mats_uv = get_mats_uv(scn, self.data)
-        clear_empty_mats(scn, self.data, self.mats_uv)
-        get_duplicates(self.mats_uv)
-        self.structure = get_structure(scn, self.data, self.mats_uv)
-
-        # Check if we're only dealing with duplicate materials
-        total_unique_mats = len(self.structure)
-        has_duplicates = any(len(item['dup']) > 0 for item in self.structure.values())
-
-        # Validate material requirements
-        if total_unique_mats == 0:
-            return self._return_with_message("ERROR", "No materials selected")
-
-        if total_unique_mats == 1 and not has_duplicates:
+        if not dependency.healthy:
             return self._return_with_message(
-                "ERROR",
-                "Only one unique material selected - nothing to combine",
+                "WARNING",
+                f"Pillow dependency unavailable: {dependency.summary}",
+            )
+
+        validation_message = self._validate_selection(context)
+        if validation_message:
+            return self._return_with_message(
+                "WARNING", validation_message
             )
 
         if event is not None:
             context.window_manager.fileselect_add(self)
-
         return {"RUNNING_MODAL"}
 
-    def draw(self, context: bpy.types.Context) -> None:
-        """Draw the operator UI.
-
-        This method is called to draw the operator UI.
-
-        Args:
-            context: Current Blender context.
-        """
-        pass
-
-    def _return_with_message(self, message_type: str, message: str) -> Set[str]:
-        """Return with a message to the user.
-
-        Helper method to display a message to the user and refresh the object data.
-
-        Args:
-            message_type: Type of message (INFO, ERROR, WARNING).
-            message: Message content to display.
-
-        Returns:
-            Set containing operation status.
-        """
+    def _validate_selection(
+        self,
+        context: bpy.types.Context,
+    ) -> str | None:
+        """Validate selection without changing UVs, slots, roots, or mode."""
+        scene = context.scene
         bpy.ops.smc.refresh_ob_data()
+        if validate_ob_data(scene.smc_ob_data):
+            return "No valid objects selected"
+
+        data = get_data(scene.smc_ob_data)
+        if not data:
+            return "No materials selected"
+
+        materials = {
+            material
+            for object_materials in data.values()
+            for material in object_materials
+        }
+        if len(materials) == 1:
+            return "Only one unique material selected - nothing to combine"
+        return None
+
+    def _prepare(self, context: bpy.types.Context) -> str | None:
+        """Prepare inputs after dependency and output-path preflight."""
+        scene = context.scene
+        bpy.ops.smc.refresh_ob_data()
+        if validate_ob_data(scene.smc_ob_data):
+            return "No valid objects selected"
+
+        set_ob_mode(context.view_layer, scene.smc_ob_data)
+        self.data = get_data(scene.smc_ob_data)
+        if not self.data:
+            return "No materials selected"
+
+        participating_materials = {
+            material
+            for object_materials in self.data.values()
+            for material in object_materials
+        }
+        if len(participating_materials) > MAX_PARTICIPATING_MATERIALS:
+            return "Selection exceeds the 4,096-material limit"
+
+        self.mats_uv = get_mats_uv(scene, self.data)
+        self.empty_slots = clear_empty_mats(
+            scene,
+            self.data,
+            self.mats_uv,
+        )
+        get_duplicates(self.mats_uv)
+        self.structure = get_structure(scene, self.data, self.mats_uv)
+
+        total_unique_mats = len(self.structure)
+        has_duplicates = any(
+            len(item["dup"]) > 0 for item in self.structure.values()
+        )
+        if total_unique_mats == 0:
+            return "No materials selected"
+        if total_unique_mats == 1 and not has_duplicates:
+            return "Only one unique material selected - nothing to combine"
+        return None
+
+    def draw(self, context: bpy.types.Context) -> None:
+        """Draw no extra controls in Blender's directory selector."""
+
+    def _return_with_message(
+        self,
+        message_type: str,
+        message: str,
+    ) -> Set[str]:
+        """Report a message with accurate cancellation semantics."""
         self.report({message_type}, message)
+        if message_type in {"ERROR", "WARNING"}:
+            return {"CANCELLED"}
         return {"FINISHED"}

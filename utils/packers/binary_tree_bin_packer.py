@@ -90,9 +90,18 @@ class BinaryTreeBinPacker:
         for img in self.bin.values():
             w, h = img["gfx"]["size"]
             node = self.find_node(self.root, w, h)
-            img["gfx"]["fit"] = (
+            fit = (
                 self.split_node(node, w, h) if node else self.grow_node(w, h)
             )
+            if fit is None:
+                raise ValueError("Unable to pack image")
+            img["gfx"]["fit"] = {
+                "x": fit["x"],
+                "y": fit["y"],
+                "w": w,
+                "h": h,
+                "rotated": False,
+            }
 
         return self.bin
 

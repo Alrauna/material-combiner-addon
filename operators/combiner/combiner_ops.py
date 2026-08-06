@@ -20,7 +20,9 @@ import math
 import os
 import random
 import re
+import uuid
 from collections import OrderedDict, defaultdict
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 
@@ -41,7 +43,7 @@ from ...type_annotations import (
     Structure,
     StructureItem,
 )
-from ...utils.images import get_image, get_packed_file
+from ...utils.images import ImageInput, get_image_input
 from ...utils.materials import (
     get_diffuse,
     get_image_from_material,
@@ -56,25 +58,50 @@ ImageFile = None
 ImageType = None
 resampling = None
 
-try:
-    from PIL import Image, ImageChops, ImageFile
 
+def ensure_pillow_available() -> None:
+    """Bind Pillow after Blender has activated extension-managed wheels.
+
+    Pillow's decompression-bomb and truncated-input policies are intentionally
+    left at their library defaults.
+    """
+    global Image, ImageChops, ImageFile, ImageType, resampling
+    if Image is not None:
+        return
+
+    from PIL import Image as pillow_image
+    from PIL import ImageChops as pillow_image_chops
+    from PIL import ImageFile as pillow_image_file
+
+    Image = pillow_image
+    ImageChops = pillow_image_chops
+    ImageFile = pillow_image_file
     ImageType = Image.Image
+    resampling = Image.Resampling.LANCZOS
 
-    Image.MAX_IMAGE_PIXELS = None
-    try:
-        resampling = Image.LANCZOS
-    except AttributeError:
-        resampling = Image.ANTIALIAS
 
-    if ImageFile:
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
+try:
+    ensure_pillow_available()
 except ImportError:
     pass
 
 atlas_prefix = 'Atlas_'
 atlas_texture_prefix = 'texture_atlas_'
 atlas_material_prefix = 'material_atlas_'
+MAX_UV_TILES_AXIS = 25
+MAX_UV_TILES_TOTAL = 625
+UV_SNAP_EPSILON = 1e-6
+MAX_ATLAS_PIXELS = 400_000_000
+MAX_ESTIMATED_WORKING_BYTES = 4 * 1024 * 1024 * 1024
+
+
+@dataclass
+class UVLoopValue:
+    """An aligned UV copy paired with the live vector updated at commit."""
+
+    target: Any
+    x: float
+    y: float
 
 
 def validate_ob_data(data: Sequence[bpy.types.PropertyGroup]) -> Optional[Dict[str, Any]]:
@@ -141,23 +168,46 @@ def get_mats_uv(scn: Scene, data: SMCObData) -> MatsUV:
             if mat not in item:
                 continue
             for poly in polys:
-                mats_uv[ob_n][mat].extend(align_uv(get_uv(ob, poly)))
+                live_uvs = get_uv(ob, poly)
+                aligned_uvs = align_uv(live_uvs)
+                mats_uv[ob_n][mat].extend(
+                    UVLoopValue(live, aligned.x, aligned.y)
+                    for live, aligned in zip(live_uvs, aligned_uvs)
+                )
     return mats_uv
 
 
-def clear_empty_mats(scn: Scene, data: SMCObData, mats_uv: MatsUV) -> None:
-    """Remove materials without valid UV coordinates.
+def clear_empty_mats(
+    scn: Scene,
+    data: SMCObData,
+    mats_uv: MatsUV,
+) -> List[Tuple[str, str]]:
+    """Filter materials without UVs without changing Blender datablocks.
+
+    The returned slots are removed only during the commit phase. This keeps
+    preparation side-effect free and makes later failures fully reversible.
 
     Args:
         scn: Current scene.
         data: Dictionary mapping object names to materials.
         mats_uv: Dictionary mapping object names to materials with UV coordinates.
     """
+    empty_slots = []
     for ob_n, item in data.items():
-        ob = scn.objects[ob_n]
-        for mat in item:
+        for mat in list(item):
             if mat not in mats_uv[ob_n]:
-                _delete_material(ob, mat.name)
+                empty_slots.append((ob_n, mat.name))
+                del item[mat]
+    return empty_slots
+
+
+def clear_empty_mat_slots(
+    scn: Scene,
+    empty_slots: Sequence[Tuple[str, str]],
+) -> None:
+    """Remove prepared empty slots during the atlas commit phase."""
+    for object_name, material_name in empty_slots:
+        _delete_material(scn.objects[object_name], material_name)
 
 
 def _delete_material(ob: bpy.types.Object, name: str) -> None:
@@ -243,14 +293,16 @@ def get_size(scn: Scene, data: Structure) -> Dict:
     """
     for mat, item in data.items():
         img = _get_image(mat)
-        packed_file = get_packed_file(img)
+        image_input = get_image_input(img)
         max_x, max_y = _get_max_uv_coordinates(item['uv'])
-        item['gfx']['uv_size'] = (np.clip(max_x, 1, 25), np.clip(max_y, 1, 25))
+        item['gfx']['uv_size'] = (max(max_x, 1), max(max_y, 1))
 
         if not scn.smc_crop:
             item['gfx']['uv_size'] = tuple(math.ceil(x) for x in item['gfx']['uv_size'])
 
-        if packed_file:
+        item['gfx']['source'] = image_input
+        if image_input:
+            _validate_image_input(image_input)
             img_size = _get_image_size(mat, img)
             item['gfx']['size'] = _calculate_size(img_size, item['gfx']['uv_size'], scn.smc_gaps)
         else:
@@ -290,7 +342,7 @@ def _get_image(mat: bpy.types.Material) -> Union[bpy.types.Image, None]:
     Returns:
         Image from the material or None if not found.
     """
-    return get_image_from_material(mat)
+    return get_image_from_material(mat, strict=True)
 
 
 def _get_image_size(mat: bpy.types.Material, img: bpy.types.Image) -> Tuple[int, int]:
@@ -326,12 +378,33 @@ def _get_max_uv_coordinates(uv_loops: List[bpy.types.MeshUVLoop]) -> Tuple[float
     max_y = 1
 
     for uv in uv_loops:
-        if not math.isnan(uv.x):
-            max_x = max(max_x, uv.x)
-        if not math.isnan(uv.y):
-            max_y = max(max_y, uv.y)
+        if not math.isfinite(uv.x) or not math.isfinite(uv.y):
+            raise ValueError("UV coordinates must be finite")
+        max_x = max(max_x, uv.x)
+        max_y = max(max_y, uv.y)
+
+    max_x = _snap_near_integer(max_x)
+    max_y = _snap_near_integer(max_y)
+    if max_x > MAX_UV_TILES_AXIS or max_y > MAX_UV_TILES_AXIS:
+        raise ValueError(
+            "UV repetition exceeds {} tiles on one axis".format(
+                MAX_UV_TILES_AXIS
+            )
+        )
+    if math.ceil(max_x) * math.ceil(max_y) > MAX_UV_TILES_TOTAL:
+        raise ValueError(
+            "UV repetition exceeds {} total tiles".format(
+                MAX_UV_TILES_TOTAL
+            )
+        )
 
     return max_x, max_y
+
+
+def _snap_near_integer(value: float) -> float:
+    """Snap floating-point noise near an integer tile boundary."""
+    nearest = round(value)
+    return float(nearest) if abs(value - nearest) <= UV_SNAP_EPSILON else value
 
 
 def _calculate_size(img_size: Tuple[int, int], uv_size: Tuple[int, int], gaps: int) -> Tuple[int, int]:
@@ -361,10 +434,11 @@ def get_atlas_size(structure: Structure) -> Tuple[int, int]:
     max_y = 1
 
     for item in structure.values():
-        max_x = max(max_x, item['gfx']['fit']['x'] + item['gfx']['size'][0])
-        max_y = max(max_y, item['gfx']['fit']['y'] + item['gfx']['size'][1])
+        fit = item['gfx']['fit']
+        max_x = max(max_x, fit['x'] + fit['w'])
+        max_y = max(max_y, fit['y'] + fit['h'])
 
-    return int(max_x), int(max_y)
+    return math.ceil(max_x), math.ceil(max_y)
 
 
 def calculate_adjusted_size(scn: Scene, size: Tuple[int, int]) -> Tuple[int, int]:
@@ -382,6 +456,42 @@ def calculate_adjusted_size(scn: Scene, size: Tuple[int, int]) -> Tuple[int, int
     elif scn.smc_size == 'QUAD':
         return (int(max(size)),) * 2
     return size
+
+
+def validate_resource_budget(
+    structure: Structure,
+    atlas_size: Tuple[int, int],
+) -> int:
+    """Validate atlas pixels and a conservative sequential working-set estimate."""
+    atlas_pixels = int(atlas_size[0]) * int(atlas_size[1])
+    if atlas_pixels > MAX_ATLAS_PIXELS:
+        raise ValueError(
+            "Atlas exceeds the {:,}-pixel limit".format(MAX_ATLAS_PIXELS)
+        )
+
+    largest_source_working = 0
+    for item in structure.values():
+        source = item['gfx'].get('source')
+        if not isinstance(source, ImageInput):
+            continue
+        source_pixels = source.size[0] * source.size[1]
+        # Packed/file images need decoded RGBA plus Pillow working space.
+        # Generated images additionally require Blender's float pixel copy.
+        bytes_per_pixel = 20 if source.kind == 'GENERATED' else 8
+        source_working = (
+            source_pixels * bytes_per_pixel + source.encoded_size
+        )
+        largest_source_working = max(
+            largest_source_working,
+            source_working,
+        )
+
+    estimated = atlas_pixels * 8 + largest_source_working
+    if estimated > MAX_ESTIMATED_WORKING_BYTES:
+        raise ValueError(
+            "Estimated atlas working memory exceeds the 4 GiB limit"
+        )
+    return estimated
 
 
 def get_atlas(scn: Scene, data: Structure, atlas_size: Tuple[int, int]) -> ImageType:
@@ -424,8 +534,7 @@ def _set_image_or_color(item: StructureItem, mat: bpy.types.Material) -> None:
         item: Material metadata.
         mat: Material to extract image or color from.
     """
-    image = get_image_from_material(mat)
-    item['gfx']['img_or_color'] = get_packed_file(image) if image else None
+    item['gfx']['img_or_color'] = item['gfx'].get('source')
 
     if not item['gfx']['img_or_color']:
         item['gfx']['img_or_color'] = get_diffuse(mat)
@@ -444,14 +553,17 @@ def _paste_gfx(scn: Scene, item: StructureItem, mat: bpy.types.Material, img: Im
     if not item['gfx']['fit']:
         return
 
+    gfx = _get_gfx(scn, mat, item, item['gfx']['img_or_color'])
+    if item['gfx']['fit'].get('rotated', False):
+        gfx = gfx.transpose(Image.Transpose.ROTATE_270)
     img.paste(
-        _get_gfx(scn, mat, item, item['gfx']['img_or_color']),
+        gfx,
         (int(item['gfx']['fit']['x'] + half_gaps), int(item['gfx']['fit']['y'] + half_gaps))
     )
 
 
 def _get_gfx(scn: Scene, mat: bpy.types.Material, item: StructureItem,
-             img_or_color: Union[bpy.types.PackedFile, Tuple, None]) -> ImageType:
+             img_or_color: Union[ImageInput, Tuple, None]) -> ImageType:
     """Generate image data for a material.
 
     Creates an appropriate image based on whether the material has a texture
@@ -474,7 +586,7 @@ def _get_gfx(scn: Scene, mat: bpy.types.Material, item: StructureItem,
     if isinstance(img_or_color, tuple):
         return Image.new('RGBA', size, img_or_color)
 
-    img = Image.open(io.BytesIO(img_or_color.data)).convert("RGBA")
+    img = _decode_image_input(img_or_color)
     if img.size != size:
         img.resize(size, resampling)
     if mat.smc_size:
@@ -486,6 +598,47 @@ def _get_gfx(scn: Scene, mat: bpy.types.Material, item: StructureItem,
         img = ImageChops.multiply(img, diffuse_img)
 
     return img
+
+
+def _open_encoded_image(source: ImageInput):
+    """Open a fresh Pillow stream for a packed or file image."""
+    if source.kind == 'PACKED':
+        return Image.open(io.BytesIO(source.packed_file.data))
+    if source.kind == 'FILE':
+        return Image.open(source.path)
+    raise ValueError("Image input is not encoded")
+
+
+def _validate_image_input(source: ImageInput) -> None:
+    """Fully validate encoded input before atlas or Blender mutations begin."""
+    if source.kind == 'GENERATED':
+        return
+    with _open_encoded_image(source) as probe:
+        if probe.size != source.size:
+            raise ValueError("Image dimensions changed or are inconsistent")
+        probe.verify()
+    with _open_encoded_image(source) as decoded:
+        decoded.load()
+
+
+def _decode_image_input(source: ImageInput) -> ImageType:
+    """Decode one source to RGBA, keeping source processing sequential."""
+    if source.kind != 'GENERATED':
+        with _open_encoded_image(source) as decoded:
+            decoded.load()
+            return decoded.convert('RGBA')
+
+    width, height = source.size
+    pixels = np.empty(width * height * 4, dtype=np.float32)
+    source.image.pixels.foreach_get(pixels)
+    if not np.isfinite(pixels).all():
+        raise ValueError("Generated image contains non-finite pixels")
+    np.clip(pixels, 0.0, 1.0, out=pixels)
+    pixels *= 255.0
+    rgba = pixels.astype(np.uint8).reshape((height, width, 4))
+    return Image.fromarray(rgba, 'RGBA').transpose(
+        Image.Transpose.FLIP_TOP_BOTTOM
+    )
 
 
 def _get_uv_image(item: StructureItem, img: ImageType, size: Tuple[int, int]) -> ImageType:
@@ -536,24 +689,59 @@ def align_uvs(scn: Scene, data: Structure, atlas_size: Tuple[int, int], size: Tu
 
     for item in data.values():
         gfx_size = item['gfx']['size']
-        gfx_height = gfx_size[1]
+        fit = item['gfx']['fit']
+        _validate_fit(fit, size)
 
-        gfx_width_margin, gfx_height_margin = (x - margin for x in gfx_size)
+        content_width, content_height = (x - margin for x in gfx_size)
+        if content_width <= 0 or content_height <= 0:
+            raise ValueError("Atlas padding leaves no texture content")
 
         uv_width, uv_height = item['gfx']['uv_size']
-
-        x_offset = item['gfx']['fit']['x'] + border_margin
-        y_offset = item['gfx']['fit']['y'] - border_margin
+        rotated = fit.get('rotated', False)
 
         for uv in item['uv']:
-            reset_x = uv.x / uv_width * gfx_width_margin
-            reset_y = uv.y / uv_height * gfx_height_margin - gfx_height
+            local_u = uv.x / uv_width
+            local_v = uv.y / uv_height
+            if rotated:
+                local_u, local_v = local_v, 1 - local_u
+                placed_width = content_height
+                placed_height = content_width
+            else:
+                placed_width = content_width
+                placed_height = content_height
 
-            uv_x = (reset_x + x_offset) / size_width
-            uv_y = (reset_y - y_offset) / size_height
+            atlas_x = fit['x'] + border_margin + local_u * placed_width
+            atlas_y = (
+                size_height
+                - fit['y']
+                - fit['h']
+                + border_margin
+                + local_v * placed_height
+            )
+            uv.target.x = atlas_x / size_width * scaled_width
+            uv.target.y = atlas_y / size_height * scaled_height
 
-            uv.x = uv_x * scaled_width
-            uv.y = uv_y * scaled_height + 1
+
+def _validate_fit(fit: Dict[str, Any], size: Tuple[int, int]) -> None:
+    """Reject malformed, non-finite, or out-of-bounds packer output."""
+    required = ('x', 'y', 'w', 'h')
+    if not isinstance(fit, dict) or any(key not in fit for key in required):
+        raise ValueError("Packer returned an incomplete placement")
+    values = tuple(fit[key] for key in required)
+    if not all(isinstance(value, (int, float)) for value in values):
+        raise ValueError("Packer placement values must be numeric")
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Packer placement values must be finite")
+    x, y, width, height = values
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise ValueError("Packer placement has invalid bounds")
+    if x + width > size[0] or y + height > size[1]:
+        raise ValueError(
+            "Packer placement {} exceeds atlas bounds {}".format(
+                values,
+                size,
+            )
+        )
 
 
 def _get_scale_factors(atlas_size: Tuple[int, int], size: Tuple[int, int]) -> Tuple[float, float]:
@@ -578,7 +766,37 @@ def _get_scale_factors(atlas_size: Tuple[int, int], size: Tuple[int, int]) -> Tu
     return (1, 1 / aspect_ratio) if aspect_ratio > 1 else (aspect_ratio, 1)
 
 
-def get_comb_mats(scn: Scene, atlas: ImageType, mats_uv: MatsUV) -> CombMats:
+@dataclass
+class AtlasBuild:
+    """Staged atlas output and the Blender datablocks created for it."""
+
+    temporary_path: str
+    final_path: str
+    materials: CombMats = field(default_factory=dict)
+    texture: Optional[bpy.types.Texture] = None
+    image: Optional[bpy.types.Image] = None
+    committed: bool = False
+
+    def rollback(self) -> None:
+        """Remove staged output and every datablock created by this build."""
+        for material in list(self.materials.values()):
+            if material and material.name in bpy.data.materials:
+                bpy.data.materials.remove(material, do_unlink=True)
+        self.materials.clear()
+        if self.texture and self.texture.name in bpy.data.textures:
+            bpy.data.textures.remove(self.texture, do_unlink=True)
+        if self.image and self.image.name in bpy.data.images:
+            bpy.data.images.remove(self.image, do_unlink=True)
+        for path in (self.temporary_path,):
+            if path and os.path.exists(path):
+                os.remove(path)
+
+
+def get_comb_mats(
+    scn: Scene,
+    atlas: ImageType,
+    mats_uv: MatsUV,
+) -> AtlasBuild:
     """Create materials for the generated atlas.
 
     Args:
@@ -591,9 +809,32 @@ def get_comb_mats(scn: Scene, atlas: ImageType, mats_uv: MatsUV) -> CombMats:
     """
     unique_id = _get_unique_id(scn)
     layers = _get_layers(scn, mats_uv)
-    path = _save_atlas(scn, atlas, unique_id)
-    texture = _create_texture(path, unique_id)
-    return cast(CombMats, {idx: _create_material(texture, unique_id, idx) for idx in layers})
+    build = _stage_atlas(scn, atlas, unique_id)
+    try:
+        build.texture = _create_texture(build.temporary_path, unique_id)
+        build.image = build.texture.image
+        # Point the datablock at its eventual path before the atomic rename so
+        # the rename remains the final fallible operation.
+        build.image.filepath = build.final_path
+        build.materials = cast(
+            CombMats,
+            {
+                idx: _create_material(build.texture, unique_id, idx)
+                for idx in layers
+            },
+        )
+        return build
+    except Exception:
+        build.rollback()
+        raise
+
+
+def finalize_comb_mats(build: AtlasBuild) -> None:
+    """Atomically publish a staged atlas after Blender mutations succeed."""
+    if os.path.exists(build.final_path):
+        raise FileExistsError(build.final_path)
+    os.rename(build.temporary_path, build.final_path)
+    build.committed = True
 
 
 def _get_layers(scn: Scene, mats_uv: MatsUV) -> Set[int]:
@@ -677,8 +918,8 @@ def _add_ids_from_existing_files(scn: Scene, existed_ids: Set[int]) -> None:
             existed_ids.add(int(match.group(1)))
 
 
-def _save_atlas(scn: Scene, atlas: ImageType, unique_id: str) -> str:
-    """Save the atlas image to disk.
+def _stage_atlas(scn: Scene, atlas: ImageType, unique_id: str) -> AtlasBuild:
+    """Write and verify an atlas in its destination directory.
 
     Args:
         scn: Current scene.
@@ -686,11 +927,25 @@ def _save_atlas(scn: Scene, atlas: ImageType, unique_id: str) -> str:
         unique_id: Unique ID for the atlas.
 
     Returns:
-        Path to the saved atlas image.
+        The staged atlas build record.
     """
-    path = os.path.join(scn.smc_save_path, '{}{}.png'.format(atlas_prefix, unique_id))
-    atlas.save(path)
-    return path
+    final_path = os.path.join(
+        scn.smc_save_path,
+        '{}{}.png'.format(atlas_prefix, unique_id),
+    )
+    temporary_path = os.path.join(
+        scn.smc_save_path,
+        '.{}{}.{}.tmp'.format(atlas_prefix, unique_id, uuid.uuid4().hex),
+    )
+    build = AtlasBuild(temporary_path, final_path)
+    try:
+        atlas.save(temporary_path, format='PNG')
+        with Image.open(temporary_path) as staged:
+            staged.verify()
+        return build
+    except Exception:
+        build.rollback()
+        raise
 
 
 def _create_texture(path: str, unique_id: str) -> bpy.types.Texture:

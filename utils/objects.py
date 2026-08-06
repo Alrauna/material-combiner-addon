@@ -63,13 +63,16 @@ def align_uv(face_uv: List[Vector]) -> List[Vector]:
     min_x = min((uv.x for uv in face_uv if not math.isnan(uv.x)), default=0.0)
     min_y = min((uv.y for uv in face_uv if not math.isnan(uv.y)), default=0.0)
 
+    # Work on copies so selection/preflight never changes live mesh UVs.
+    aligned_uvs = [uv.copy() for uv in face_uv]
+
     # Floor values for alignment
     min_x, min_y = math.floor(min_x), math.floor(min_y)
 
     # Shift UVs to align to (0,0)
     if min_x != 0 or min_y != 0:
-        for uv in face_uv:
+        for uv in aligned_uvs:
             uv.x -= min_x
             uv.y -= min_y
 
-    return face_uv
+    return aligned_uvs

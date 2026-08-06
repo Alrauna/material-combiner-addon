@@ -1,14 +1,13 @@
 """Registration module for the Material Combiner addon.
 
 This module handles the registration and unregistration of all Blender classes
-used by the addon. It also manages property annotations and initializes the 
-icon system and updater functionality.
+used by the addon. It also manages property annotations and initializes the
+icon system.
 """
 
 import bpy
 
 from . import (
-    addon_updater_ops,
     extend_lists,
     extend_types,
     globs,
@@ -40,48 +39,47 @@ __bl_classes = [
     extend_lists.SMC_UL_Combine_List,
 ]
 
+_registered_classes: list[BlClasses] = []
+
 
 def register_all() -> None:
     """Register all components of the addon.
     
     This is the main registration function called when the addon is enabled.
-    It registers all classes, initializes icons, and sets up the updater.
+    It registers all classes and initializes icons.
     """
-    _register_classes()
-    initialize_smc_icons()
-    addon_updater_ops.register()
-    addon_updater_ops.check_for_update_background()
-    extend_types.register()
+    try:
+        _register_classes()
+        initialize_smc_icons()
+        extend_types.register()
+    except BaseException:
+        _rollback_registration()
+        raise
 
 
 def unregister_all() -> None:
     """Unregister all components of the addon.
     
     This is the main unregistration function called when the addon is disabled.
-    It unregisters all classes, cleans up icons, and shuts down the updater.
+    It unregisters all classes and cleans up icons.
     """
-    _unregister_classes()
-    unload_smc_icons()
-    addon_updater_ops.unregister()
-    extend_types.unregister()
+    _cleanup_registration(raise_errors=True)
 
 
 def _register_classes() -> None:
     """Register all Blender classes used by the addon.
     
-    Converts properties to annotations as needed and logs registration results.
+    Converts properties to annotations and records every successful class so a
+    later failure can be rolled back in reverse dependency order.
     """
-    count = 0
+    if _registered_classes:
+        raise RuntimeError('Material Combiner classes are already registered')
+
     for cls in __bl_classes:
         make_annotations(cls)
-        try:
-            bpy.utils.register_class(cls)
-            count += 1
-        except ValueError as e:
-            print('Error:', cls, e)
-    print('Registered', count, 'Material Combiner classes.')
-    if count < len(__bl_classes):
-        print('Skipped', len(__bl_classes) - count, 'Material Combiner classes.')
+        bpy.utils.register_class(cls)
+        _registered_classes.append(cls)
+    print('Registered', len(_registered_classes), 'Material Combiner classes.')
 
 
 def _unregister_classes() -> None:
@@ -90,13 +88,47 @@ def _unregister_classes() -> None:
     Classes are unregistered in reverse order to handle dependencies.
     """
     count = 0
-    for cls in reversed(__bl_classes):
+    classes = list(_registered_classes) or list(__bl_classes)
+    errors = []
+    for cls in reversed(classes):
+        if not getattr(cls, 'is_registered', False):
+            continue
         try:
             bpy.utils.unregister_class(cls)
             count += 1
-        except (ValueError, RuntimeError) as e:
-            print('Error:', cls, e)
+        except Exception as exc:
+            errors.append(exc)
+    _registered_classes.clear()
     print('Unregistered', count, 'Material Combiner classes.')
+    if errors:
+        raise RuntimeError(
+            f'Failed to unregister {len(errors)} Material Combiner classes'
+        ) from errors[0]
+
+
+def _rollback_registration() -> None:
+    """Undo every completed registration phase after an enable failure."""
+    _cleanup_registration(raise_errors=False)
+
+
+def _cleanup_registration(*, raise_errors: bool) -> None:
+    """Clean every lifecycle phase, continuing after individual failures."""
+    cleanup_errors = []
+    for cleanup in (
+        extend_types.unregister,
+        unload_smc_icons,
+        _unregister_classes,
+    ):
+        try:
+            cleanup()
+        except Exception as exc:
+            cleanup_errors.append(exc)
+    for error in cleanup_errors:
+        print('Material Combiner rollback error:', repr(error))
+    if cleanup_errors and raise_errors:
+        raise RuntimeError(
+            f'Material Combiner cleanup failed in {len(cleanup_errors)} phases'
+        ) from cleanup_errors[0]
 
 
 def make_annotations(cls: BlClasses) -> BlClasses:

@@ -11,14 +11,6 @@ import bpy
 from .. import globs
 from ..icons import get_icon_id
 
-_GITHUB_README_URL = 'https://github.com/Grim-es/material-combiner-addon/?tab=readme-ov-file#pillow-installation-process-is-repeated'
-_DISCORD_CONTACT_URL = 'https://discordapp.com/users/275608234595713024'
-_INSTALL_HELP_TEXT = (
-    'If the installation process is repeated, try running Blender as Administrator '
-    'or check your Internet connection.'
-)
-
-
 class MaterialCombinerPanel(bpy.types.Panel):
     """Main panel for the Material Combiner addon.
 
@@ -44,10 +36,9 @@ class MaterialCombinerPanel(bpy.types.Panel):
         """
         layout = self.layout
 
-        if globs.pil_available:
+        status = globs.refresh_dependency_status()
+        if status.healthy:
             self._render_main_interface(context, layout)
-        elif globs.pil_install_attempted:
-            self.render_install_success(layout)
         else:
             self.draw_pillow_installer(context, layout)
 
@@ -215,7 +206,7 @@ class MaterialCombinerPanel(bpy.types.Panel):
 
     @staticmethod
     def draw_pillow_installer(context: bpy.types.Context, layout: bpy.types.UILayout) -> None:
-        """Draw the Pillow installation interface when Pillow is not installed.
+        """Draw centralized dependency status for standalone and CATS UI.
 
         Creates UI elements for installing Pillow and displaying
         help information.
@@ -225,70 +216,30 @@ class MaterialCombinerPanel(bpy.types.Panel):
             layout: The layout to draw into.
         """
         box = layout.box()
-        MaterialCombinerPanel._render_install_header(box)
-        MaterialCombinerPanel._render_install_actions(box)
-        MaterialCombinerPanel._render_install_troubleshooting(box, context)
-
-    @staticmethod
-    def _render_install_header(layout: bpy.types.UILayout) -> None:
-        """Render the installation header with a warning message.
-
-        Args:
-            layout: The layout to draw into.
-        """
-        col = layout.column(align=True)
-        col.label(text='Python Imaging Library Required', icon='ERROR')
+        status = globs.refresh_dependency_status()
+        col = box.column(align=True)
+        col.label(text='Material Combiner dependency issue', icon='ERROR')
+        col.label(text=status.summary)
+        if status.cause:
+            col.label(text=f'Cause: {status.cause.replace("_", " ")}')
         col.separator()
-
-    @staticmethod
-    def _render_install_actions(layout: bpy.types.UILayout) -> None:
-        """Render the installation action buttons for Pillow installation.
-
-        Args:
-            layout: The layout to draw into.
-        """
-        row = layout.row()
-        row.scale_y = 1.5
-        row.operator('smc.get_pillow', text='Install Pillow', icon='IMPORT')
-
-    @staticmethod
-    def _render_install_troubleshooting(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
-        """Render installation troubleshooting help with external links.
-
-        Provides information and links for getting help with
-        installation issues.
-
-        Args:
-            layout: The layout to draw into.
-            context: The current Blender context.
-        """
-        layout.separator()
-        layout.label(text=_INSTALL_HELP_TEXT)
-
-        help_col = layout.column(align=True)
-        help_col.scale_y = 1.2
-        help_col.operator(
-            'smc.browser',
-            text='ReadMe on GitHub',
-            icon='URL'
-        ).link = _GITHUB_README_URL
-
-        help_col.operator(
-            'smc.browser',
-            text='Contact Support (Discord)',
-            icon='COMMUNITY'
-        ).link = _DISCORD_CONTACT_URL
+        col.label(text=status.recovery)
+        col.label(
+            text=(
+                f'Blender {status.blender_version}; '
+                f'Python {status.python_version}; {status.architecture}'
+            )
+        )
+        col.label(text=f'Dependency status: {status.category}')
+        actions = box.column(align=True)
+        actions.scale_y = 1.2
+        actions.operator(
+            'smc.get_pillow',
+            text='Copy Dependency Diagnostics',
+            icon='COPYDOWN',
+        )
 
     @staticmethod
     def render_install_success(layout: bpy.types.UILayout) -> None:
-        """Render an installation success message prompting for restart.
-
-        Displays a message indicating that the Pillow installation is complete
-        and the Blender needs to be restarted.
-
-        Args:
-            layout: The layout to draw into.
-        """
-        box = layout.box().column()
-        box.label(text='Installation Complete', icon_value=get_icon_id("done"))
-        box.label(text='Please Restart Blender', icon_value=get_icon_id("refresh"))
+        """Compatibility alias for callers expecting the legacy method."""
+        MaterialCombinerPanel.draw_pillow_installer(bpy.context, layout)

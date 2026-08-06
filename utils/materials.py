@@ -14,7 +14,7 @@ import numpy as np
 
 from .. import globs
 from ..type_annotations import Diffuse, MatDict, MatDictItem
-from .images import get_image, get_packed_file
+from .images import get_image_input
 from .textures import get_texture
 
 # Gamma correction constants for proper sRGB to linear conversion
@@ -190,6 +190,8 @@ def get_shader_type(mat: bpy.types.Material) -> Optional[str]:
 
 def _find_image_from_connection_detection(
     mat: bpy.types.Material,
+    *,
+    strict: bool = False,
 ) -> Optional[bpy.types.Image]:
     """Finds image through connection-based detection.
 
@@ -210,7 +212,11 @@ def _find_image_from_connection_detection(
         shader_result = _trace_connected_shader(output_node)
         if shader_result:
             shader_node, shader_type = shader_result
-            image_node = _find_connected_image_node(shader_node, shader_type)
+            image_node = _find_connected_image_node(
+                shader_node,
+                shader_type,
+                strict=strict,
+            )
             if image_node and hasattr(image_node, "image"):
                 return image_node.image
 
@@ -288,6 +294,8 @@ def _find_image_from_shader_type(
 
 def get_image_from_material(
     mat: bpy.types.Material,
+    *,
+    strict: bool = False,
 ) -> Optional[bpy.types.Image]:
     """Extracts the main albedo/diffuse image from a material.
 
@@ -308,18 +316,31 @@ def get_image_from_material(
 
     # Try different detection methods in order of reliability
     detection_methods = [
-        lambda: _find_image_from_connection_detection(mat),
+        lambda: _find_image_from_connection_detection(mat, strict=strict),
         lambda: _find_image_from_specific_nodes(node_tree),
         lambda: _find_color_connected_image(node_tree),
-        lambda: _find_image_from_any_texture_node(node_tree),
-        lambda: _find_image_from_shader_type(mat),
     ]
+    if not strict:
+        detection_methods.extend(
+            (
+                lambda: _find_image_from_any_texture_node(node_tree),
+                lambda: _find_image_from_shader_type(mat),
+            )
+        )
 
     for method in detection_methods:
         result_image = method()
         if result_image:
             break
 
+    if strict and result_image is None and any(
+        _is_image_texture_node(node) for node in node_tree.nodes
+    ):
+        raise ValueError(
+            "Material '{}' uses an unsupported shader image input".format(
+                mat.name
+            )
+        )
     return result_image
 
 
@@ -392,8 +413,10 @@ def sort_materials(
     Returns:
         Materials grouped by texture/color combinations for atlas creation.
     """
-    # Reset material references
-    for mat in bpy.data.materials:
+    # Only reset materials participating in this combine operation. Root
+    # relationships on unrelated materials are part of the user's scene and
+    # must not be changed as a side effect of atlas preparation.
+    for mat in set(mat for mat in mat_list if mat):
         mat.root_mat = None
 
     mat_dict = cast(MatDict, defaultdict(list))
@@ -401,18 +424,18 @@ def sort_materials(
         if not mat:
             continue
 
-        packed_file = None
+        image_input = None
 
-        image = get_image_from_material(mat)
+        image = get_image_from_material(mat, strict=True)
         if image:
-            packed_file = get_packed_file(image)
+            image_input = get_image_input(image)
 
         # Get diffuse color (always RGBA)
         diffuse_rgba = get_diffuse(mat)
 
-        if packed_file:
+        if image_input:
             key = (
-                packed_file,
+                image,
                 diffuse_rgba if mat.smc_diffuse else DEFAULT_DIFFUSE,
             )
             mat_dict[key].append(mat)
@@ -630,7 +653,10 @@ def _get_priority_input_name(
 
 
 def _find_connected_image_node(
-    shader_node: bpy.types.Node, shader_type: str = ""
+    shader_node: bpy.types.Node,
+    shader_type: str = "",
+    *,
+    strict: bool = False,
 ) -> Optional[bpy.types.Node]:
     """Locates an image texture connected to a shader's albedo/color input.
 
@@ -666,6 +692,9 @@ def _find_connected_image_node(
             result = _check_input_for_image(shader_node.inputs[input_name])
             if result:
                 return result
+
+    if strict:
+        return None
 
     # 4. Try all other inputs as last resort
     for input_socket in shader_node.inputs:

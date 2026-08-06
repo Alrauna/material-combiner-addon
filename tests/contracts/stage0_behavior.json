@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "characterized_versions": {
+    "blender_5_0": "5.0.1",
+    "blender_5_2": "5.2.0 LTS"
+  },
+  "standalone_golden_atlases": {
+    "BINARY_TREE": {
+      "dimensions": [22, 22],
+      "sha256": "0f4ac0b740b5a6ae8429da951d67e4f5193f6601d095f72ac54adba6e88c00cb"
+    },
+    "MAX_RECTS": {
+      "dimensions": [26, 18],
+      "sha256": "5c08e71b0c9d3f8e7a534a70aa2ae5bbd51213f21d633aab6bb6a16153c51574"
+    },
+    "RECT_PACK2D": {
+      "dimensions": [18, 27],
+      "sha256": "20b55be7423bea763019c4d3f492009bf9fe054fb3549d003252079a31a31c43"
+    }
+  },
+  "cats_golden_atlas": {
+    "dimensions": [32, 32],
+    "sha256": "3842e3a4fa65d6d9f6acedb77cbcc932c633b2c511acb6aaccf91565439a26de"
+  },
+  "expanded_fixture_atlases": {
+    "unsaved_external": {
+      "dimensions": [17, 12],
+      "sha256": "f42b564b4943bbc0b926269266a0e3cb35d5492c81ae72299fbd4f93d3504399"
+    },
+    "saved_relative_packed": {
+      "dimensions": [10, 8],
+      "sha256": "d92e64c96e22b352416ea12736bc2d6e01dd6f51b7dbc4942a50c059bd997415"
+    },
+    "generated_image_historical_fallback": {
+      "dimensions": [20, 10],
+      "sha256": "338ca34af77edab88da12abba97bc003298d7845020e17a46d10dfc1b2a5b560"
+    }
+  },
+  "migration_fixture": {
+    "sha256": "874dbe867c71d1113db3d727760c63a1bf19431f7fd88db9e6fa579559bb51e2",
+    "meaningful_settings_preserved_5_0_to_5_2": true
+  },
+  "confirmed_historical_defects": [
+    "cats=True persistently changes atlas size mode and gaps",
+    "unrelated material root_mat values can be cleared",
+    "oversize, missing-directory, missing-Pillow, and injected failures can mutate UVs",
+    "empty input reports an error and then continues into a crash",
+    "error helpers can report ERROR while returning FINISHED",
+    "runtime Pillow installation mutates external Python environments",
+    "custom updater performs network and package writes",
+    "Pillow decompression-bomb protection is disabled process-wide",
+    "truncated-image loading is enabled process-wide",
+    "generated image pixels are silently replaced by material color",
+    "external images are packed into Blender datablocks as a side effect",
+    "RectPack2D rotation is reachable without matching pixel and UV rotation",
+    "legacy updater state paths can fail above Windows MAX_PATH after partial registration"
+  ]
+}

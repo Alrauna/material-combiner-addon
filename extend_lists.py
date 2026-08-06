@@ -118,7 +118,10 @@ class SMC_UL_Combine_List(bpy.types.UIList):
         self._draw_toggle_control(row, item, index)
 
         preview_id = self._get_material_preview_id(item)
-        row.label(text='', icon_value=preview_id)
+        if preview_id:
+            row.label(text='', icon_value=preview_id)
+        else:
+            row.label(text='', icon='QUESTION')
         row.prop(item.mat, 'name', text='', emboss=False)
 
         self._draw_layer_control(row, item)
@@ -139,7 +142,7 @@ class SMC_UL_Combine_List(bpy.types.UIList):
         """
         if item.mat and item.mat.preview:
             return item.mat.preview.icon_id
-        return bpy.context.icon(bpy.context, 'QUESTION')
+        return 0
 
     @staticmethod
     def _draw_layer_control(layout: bpy.types.UILayout, item: Any) -> None:

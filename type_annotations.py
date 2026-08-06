@@ -8,6 +8,7 @@ type definitions to avoid repetition and ensure consistency.
 from typing import DefaultDict, Dict, List, Tuple, Union
 
 import bpy
+import bpy.utils.previews
 from mathutils import Vector
 
 from . import globs

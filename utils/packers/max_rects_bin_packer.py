@@ -410,6 +410,7 @@ class MaxRectsBinPacker:
                         "y": rect_obj.top,
                         "w": rect_obj.width,
                         "h": rect_obj.height,
+                        "rotated": False,
                     }
                 elif self.verbose:
                     print(
