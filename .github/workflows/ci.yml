@@ -61,6 +61,7 @@ jobs:
         run: '"${{ steps.blender.outputs.blender }}" --factory-startup --command extension validate addon'
 
       - name: Run source-tree suites
+        timeout-minutes: 20
         shell: bash
         run: |
           set -euo pipefail
@@ -78,13 +79,40 @@ jobs:
           run_suite lifecycle   --script tests/blender/verify_atomic_lifecycle.py   --result r.json
           run_suite preflight   --script tests/blender/verify_preflight_failures.py --result r.json
           run_suite dep-absent  --script tests/blender/verify_dependency_absent.py  --result r.json --exclude-wheel
-          run_suite atlas       --script tests/blender/verify_atlas_workflows.py    --result r.json --foreground
+
+      # Foreground needs a real window. Under xvfb that works and the undo and
+      # repeatability check actually runs. A Windows runner has no interactive
+      # desktop: Blender opens a window and blocks forever, so the atlas suite
+      # runs in background there and the undo check reports that it was
+      # skipped. That check is therefore covered on Linux only.
+      - name: Run the atlas suite (foreground, undo covered)
+        if: matrix.platform == 'linux'
+        timeout-minutes: 20
+        shell: bash
+        run: >-
+          python tests/run_tests.py
+          --blender "${{ steps.blender.outputs.blender }}"
+          --work "${{ runner.temp }}/work-atlas"
+          source --script tests/blender/verify_atlas_workflows.py
+          --result r.json --foreground
+
+      - name: Run the atlas suite (background)
+        if: matrix.platform == 'windows'
+        timeout-minutes: 20
+        shell: bash
+        run: >-
+          python tests/run_tests.py
+          --blender "${{ steps.blender.outputs.blender }}"
+          --work "${{ runner.temp }}/work-atlas"
+          source --script tests/blender/verify_atlas_workflows.py
+          --result r.json
 
       # Regression cover for the Windows extended-length path handling. The
       # extension root must stay under MAX_PATH while files inside exceed it;
       # see tests/README.md before changing the padding.
       - name: Run the long-path suite
         if: matrix.platform == 'windows'
+        timeout-minutes: 20
         shell: bash
         run: >-
           python tests/run_tests.py
@@ -150,9 +178,12 @@ jobs:
           --cats "${{ steps.cats.outputs.extension }}"
           --cats-sha256 "${{ steps.cats.outputs.extension_sha256 }}"
 
+      # Uploaded on success too. A green run otherwise cannot show whether the
+      # undo check ran or reported itself skipped, which is exactly the
+      # distinction the foreground handling exists to make.
       # actions/upload-artifact v4.6.2.
-      - name: Upload results on failure
-        if: failure()
+      - name: Upload suite results
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: results-${{ matrix.label }}

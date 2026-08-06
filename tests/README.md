@@ -70,6 +70,12 @@ anyway. Use `--archive` to run offline from a local copy.
   that check reports that it needs a foreground context instead of running.
   On Linux without a display the runner wraps Blender in `xvfb-run`; if xvfb
   is not installed it refuses to start rather than quietly skipping the check.
+
+  **Do not use `--foreground` on a Windows CI runner.** A `windows-2025`
+  runner has no interactive desktop, so Blender opens a window and blocks
+  forever; the first CI run hung there for 25 minutes until it was cancelled.
+  CI runs the atlas suite in foreground on Linux under xvfb and in background
+  on Windows, so the undo check is covered on Linux only.
 - `--long-path` (source) nests the work directory so that files inside the
   profile exceed the Windows MAX_PATH limit while the extension root stays
   below it. That mix is what the dependency-trust regression needs; see below.

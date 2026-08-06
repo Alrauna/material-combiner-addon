@@ -31,16 +31,29 @@ unreachable resolver fails the build.
 Both former CI gaps are covered: Linux installs xvfb so the foreground atlas
 undo check really runs, and Windows runs the long-path suite.
 
+### First CI run
+
+Linux passed end to end on the first attempt, including xvfb carrying the
+foreground atlas suite and the `--strict` CATS checkpoint.
+
+Windows hung. `--foreground` on a `windows-2025` runner blocks forever,
+because the runner has no interactive desktop for Blender's window; the job
+sat on the atlas suite for 25 minutes until it was cancelled. CI now runs the
+atlas suite in foreground on Linux and in background on Windows, so the undo
+and repeatability check is covered on Linux only. Step timeouts were added so
+a future hang fails in 20 minutes instead of 60, and results now upload on
+success as well as failure, because a green run otherwise cannot show whether
+the undo check ran or reported itself skipped.
+
 ## Next
 
-- **The workflow has never executed.** Everything it invokes was run locally,
-  command for command, and `tools/ci.py` is unit-tested with all three
-  resolvers exercised live, but GitHub Actions itself has not run this file.
-  Watch the first run on the pull request.
-- Specific unknowns for that first run: whether `subst` works on a
-  `windows-2025` runner, whether `xvfb-run` carries the foreground atlas suite
-  on `ubuntu-24.04`, and whether the `_load_lock` long-path defect reproduces
-  there, since it does not on a machine with `LongPathsEnabled` set.
+- **The revised workflow has not been observed yet.** Windows in particular
+  got no further than the atlas suite on the first run, so everything after
+  it on that platform — long-path, build, package suites, CATS checkpoint —
+  is still unproven there. Watch the next run.
+- Still unknown on Windows: whether `subst` works on the runner, and whether
+  the `_load_lock` long-path defect reproduces there, since it does not on a
+  machine with `LongPathsEnabled` set.
 - Workstream 5: release workflow and branch protection. Protection must come
   last, because required status checks reference the job names this workflow
   introduces: `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
