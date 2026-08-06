@@ -15,11 +15,13 @@ the task explicitly authorizes a change.
 
 ## Intended repository layout
 
-The flat repository root is intentional. It is also the Blender extension
-package root.
+`addon/` is the Blender extension package root and the only directory that
+ships to users. Everything outside it is development material.
+
+Inside `addon/`:
 
 - `__init__.py`, `registration.py`, `dependencies*.py`, `extend_*.py`,
-  `globs.py`, and `type_annotations.py`: root package and registration
+  `globs.py`, and `type_annotations.py`: package and registration
   infrastructure.
 - `operators/`: Blender operators. Its `combiner/` and `ui/` subpackages are
   intentional.
@@ -28,14 +30,23 @@ package root.
 - `utils/`: image, material, object, texture, and atlas-packing utilities.
 - `icons/`: runtime UI assets.
 - `wheels/`: reviewed runtime wheels referenced by the Blender manifest.
+- `blender_manifest.toml` and `dependencies.lock.json`: package and dependency
+  metadata.
+- `THIRD_PARTY.md`: bundled-dependency attribution. It is packaged
+  deliberately, so the distributed extension carries its own notice for the
+  bundled wheel.
+
+Outside `addon/`:
+
 - `tests/`: unit tests, Blender integration tests, behavioral evidence, and
   compatibility contracts.
 - `tools/`: developer and dependency-validation utilities.
-- `README.md`, `THIRD_PARTY.md`, and `tests/README.md`: project, dependency,
-  and testing documentation.
-- `blender_manifest.toml`, `dependencies.lock.json`, and `pyproject.toml`:
-  package, dependency, and development metadata.
-- `.github/`: GitHub issue metadata.
+- `docs/`: project documentation and handoff notes.
+- `README.md`, `LICENSE`, and `tests/README.md`: project, licensing, and
+  testing documentation. Neither is packaged; the manifest declares the
+  license with an SPDX expression.
+- `pyproject.toml`: development tooling metadata.
+- `.github/`: GitHub issue metadata and workflows.
 - `.local-references/`: ignored, local-only external references.
 - `.packaged-releases/`: ignored, local-only release packages and build
   output.
@@ -43,8 +54,10 @@ package root.
   output. It is not source code and must not be committed unless the user
   explicitly selects a curated artifact.
 
-Do not introduce another source wrapper or move runtime files under `src/`
-unless a demonstrated Blender, import, packaging, or test failure requires it.
+Do not move runtime files back to the repository root or introduce a further
+wrapper inside `addon/` unless a demonstrated Blender, import, packaging, or
+test failure requires it. Build the package from `addon/`, never from the
+repository root.
 
 ## Development approach
 
@@ -199,15 +212,15 @@ operating-system temporary directory. Put intentional release ZIPs in
 `.packaged-releases/`.
 
 Every Blender extension build must be written to `.packaged-releases/` and
-named `<id>-<version>.zip`. Read `id` and `version` from
-`blender_manifest.toml`. Do not hardcode these values. If the worktree is
-dirty, report that the archive contains uncommitted changes.
+named `<id>-<version>.zip`. Build from `addon/`, and read `id` and `version`
+from `addon/blender_manifest.toml`. Do not hardcode these values. If the
+worktree is dirty, report that the archive contains uncommitted changes.
 
-For packaging changes, validate both the source directory and built archive
-with Blender's extension validation command. Inspect the resulting ZIP to
-ensure required runtime files, the manifest, licenses, icons, dependency
-metadata, and the pinned wheel are present and that tests, caches, local
-references, and generated output are absent.
+For packaging changes, validate both `addon/` and the built archive with
+Blender's extension validation command. Inspect the resulting ZIP to ensure
+required runtime files, the manifest, icons, dependency metadata, and the
+pinned wheel are present and that tests, caches, local references, and
+generated output are absent.
 
 If Blender 5.2, an approved integration package, or another required
 dependency is unavailable, report the unrun validation explicitly instead of

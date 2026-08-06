@@ -20,5 +20,5 @@ and CycloneDX software bill of materials. Pillow is distributed under its own
 terms and is not relicensed under Material Combiner's package license.
 
 The dependency provenance and hash are also recorded in
-`dependencies.lock.json`. The wheel must be revalidated and its security
+`addon/dependencies.lock.json`. The wheel must be revalidated and its security
 advisories reviewed before every release.
