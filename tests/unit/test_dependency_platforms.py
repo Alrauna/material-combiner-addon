@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import sys
+import tomllib
 import types
 import unittest
 from pathlib import Path
@@ -88,11 +89,10 @@ class LockManifestAgreementTests(unittest.TestCase):
         self.assertEqual(sorted(platforms), sorted(set(platforms)))
 
     def test_lock_platforms_match_manifest(self):
-        declared = {
-            name
-            for name in ("windows-x64", "linux-x64", "macos-arm64")
-            if f'"{name}"' in MANIFEST
-        }
+        # Read the manifest rather than scanning for names from a fixed list.
+        # A hardcoded candidate list cannot see a platform nobody thought to
+        # add to it, which is exactly the drift this test exists to catch.
+        declared = set(tomllib.loads(MANIFEST)["platforms"])
         locked = {entry["platform"] for entry in LOCK["dependencies"]}
         self.assertEqual(declared, locked)
 

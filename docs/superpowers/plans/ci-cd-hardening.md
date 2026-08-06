@@ -60,7 +60,15 @@ Original scope, for reference:
   is not a given and must be measured, not assumed.
 - Update `THIRD_PARTY.md` and the README platform statements.
 
-### 3. CATS download
+### 3. CATS download (complete)
+
+`tools/fetch_cats.py` plus `tools/cats_reference.json`. The published asset
+turned out to be a wrapper ZIP containing the installable extension ZIP, which
+Blender cannot install directly; the tool unwraps it. The unwrapped build
+passes the full checkpoint, so no CATS evidence needed re-baselining after all.
+Drift warns by default; `--strict` or `HASH_MISMATCH_IS_FATAL` makes it fail.
+
+Original scope, for reference:
 
 - Resolve the latest release of `Alrauna/Cats-Blender-Plugin`, download the
   asset, and verify its SHA-256 against a recorded value.
@@ -71,6 +79,11 @@ Original scope, for reference:
 - Keep the local `.local-references` path working for offline runs.
 
 ### 4. CI workflow
+
+**CI must fetch CATS with `--strict`.** Drift warns locally so developers are
+not blocked, but on a runner the archive is executed with a privileged token,
+and the pin is the only integrity control. Local runs stay lenient; CI does
+not.
 
 Port `scripts/ci.py` from the separator, keeping the three-resolver checksum
 consensus intact; change only the platform table, archive name, and release

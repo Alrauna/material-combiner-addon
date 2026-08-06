@@ -210,11 +210,20 @@ Linux:
   dependency, and atlas checks.
 - `package` mode for an installed extension package.
 - `checkpoint` mode for approved CATS integration, restart, and uninstall
-  checks.
+  checks. Obtain the CATS archive with `tools/fetch_cats.py`, which unwraps
+  the published release asset and reports hash drift. Drift warns rather than
+  fails until the CATS repository adopts matching release automation.
 
 The atlas undo and repeatability check needs `source --foreground`. In
 background mode it reports that it requires a foreground context instead of
-running, so a green background run does not cover it.
+running, so a green background run does not cover it. On Linux without a
+display the runner uses `xvfb-run`, and refuses to start if xvfb is missing
+rather than skipping the check.
+
+Use `source --long-path` to regression-test the Windows extended-length path
+handling. Do not raise the padding target: pushing the extension root past
+MAX_PATH makes every path carry the `\\?\` prefix, which hides the defect the
+mode exists to catch. See `tests/README.md`.
 
 Put test work directories outside tracked source, such as under the
 operating-system temporary directory. Put intentional release ZIPs in
