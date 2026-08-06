@@ -19,8 +19,12 @@ from .dependency_status import (
 
 
 EXPECTED_VERSION = "12.3.0"
-EXPECTED_PLATFORM = "windows-x64"
 EXPECTED_ABI = "cpython-313"
+SUPPORTED_PLATFORMS = {
+    "win32": "windows-x64",
+    "linux": "linux-x64",
+}
+SUPPORTED_ARCHITECTURES = {"amd64", "x86_64"}
 PACKAGE_ROOT = Path(__file__).resolve().parent
 LOCK_PATH = PACKAGE_ROOT / "dependencies.lock.json"
 _restart_required = False
@@ -72,14 +76,30 @@ def _extension_root() -> Path:
     return PACKAGE_ROOT.parents[1]
 
 
+def _current_platform() -> str | None:
+    """Return this machine's package platform, or None if unsupported."""
+    platform_name = SUPPORTED_PLATFORMS.get(sys.platform)
+    if platform_name is None:
+        return None
+    if platform.machine().casefold() not in SUPPORTED_ARCHITECTURES:
+        return None
+    return platform_name
+
+
 def _load_lock() -> tuple[dict[str, object] | None, str | None]:
+    """Return the lock entry for this platform, if the package ships one."""
     try:
         lock = json.loads(
             _filesystem_path(LOCK_PATH).read_text(encoding="utf-8")
         )
-        return lock["dependencies"][0], None
+        dependencies = lock["dependencies"]
     except Exception as exc:
         return None, repr(exc)
+    current = _current_platform()
+    for dependency in dependencies:
+        if dependency["platform"] == current:
+            return dependency, None
+    return None, f"No bundled dependency for platform: {current}"
 
 
 def _wheel_integrity(
@@ -135,6 +155,7 @@ def _runtime_imports() -> dict[str, object]:
 
 
 def get_dependency_status(cats_invocation: bool = False) -> DependencyStatus:
+    current_platform = _current_platform()
     dependency, lock_error = _load_lock()
     wheel_present, files_complete, wheel_error = _wheel_integrity(dependency)
     runtime = _runtime_imports()
@@ -152,10 +173,7 @@ def get_dependency_status(cats_invocation: bool = False) -> DependencyStatus:
     facts = DependencyFacts(
         pillow_present=bool(runtime["present"]),
         wheel_present=wheel_present,
-        platform_supported=(
-            sys.platform == "win32"
-            and platform.machine().casefold() in {"amd64", "x86_64"}
-        ),
+        platform_supported=current_platform is not None,
         abi_supported=sys.implementation.cache_tag == EXPECTED_ABI,
         native_imported=bool(runtime["native_imported"]),
         versions_match=(
@@ -194,7 +212,9 @@ def get_dependency_status(cats_invocation: bool = False) -> DependencyStatus:
         python_abi=sys.implementation.cache_tag,
         operating_system=platform.system(),
         architecture=platform.machine(),
-        expected_platform=EXPECTED_PLATFORM,
+        expected_platform=(
+            current_platform or "/".join(sorted(SUPPORTED_PLATFORMS.values()))
+        ),
         paths=paths,
         exception="; ".join(exception_parts) or None,
         cause=cause,

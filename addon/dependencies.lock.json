@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "dependencies": [
     {
       "name": "Pillow",
@@ -10,11 +10,30 @@
       "platform": "windows-x64",
       "python_tag": "cp313",
       "abi_tag": "cp313",
+      "platform_tag": "win_amd64",
+      "native_module": "PIL/_imaging.cp313-win_amd64.pyd",
       "wheel": "wheels/pillow-12.3.0-cp313-cp313-win_amd64.whl",
       "sha256": "1cca606cd25738df4ed873d5ad46bbdb3d83b5cbca291f6b4ff13a4df6b0bbe8",
       "size": 7239691,
       "license_file": "pillow-12.3.0.dist-info/licenses/LICENSE",
       "license_sha256": "4f7866a74802c6326f81faff59a56546b6aec2b10b91973e0e9308de95e79857"
+    },
+    {
+      "name": "Pillow",
+      "version": "12.3.0",
+      "purpose": "Decode, resize, compose, and save texture atlas images",
+      "source": "https://pypi.org/project/pillow/12.3.0/",
+      "license_expression": "MIT-CMU",
+      "platform": "linux-x64",
+      "python_tag": "cp313",
+      "abi_tag": "cp313",
+      "platform_tag": "manylinux_2_27_x86_64.manylinux_2_28_x86_64",
+      "native_module": "PIL/_imaging.cpython-313-x86_64-linux-gnu.so",
+      "wheel": "wheels/pillow-12.3.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "0847a763afefb695bc912d7c131e7e0632d4edc1d8698f58ddabec8e46b8b6d3",
+      "size": 6937129,
+      "license_file": "pillow-12.3.0.dist-info/licenses/LICENSE",
+      "license_sha256": "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce"
     }
   ]
 }

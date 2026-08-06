@@ -32,6 +32,20 @@ tests now run from the repository against a copy of `addon/` only.
 
 ### 2. Linux support
 
+Split into two pull requests. 2a (runtime support) is done; 2b (the runner)
+is not.
+
+**2a — runtime support (complete).** Measured outcome: dimensions and decoded
+pixels are identical across platforms; PNG file bytes are not, because Pillow
+links zlib-ng on Windows and stock zlib on Linux. Goldens now assert pixel
+content, with the file hashes retained as evidence. `linux-x64` is declared
+in the manifest on the strength of a full atlas-suite pass on real Linux.
+
+**2b — cross-platform Python test runner (outstanding).** Required before CI
+can cover Linux.
+
+Original scope, for reference:
+
 - Add the manylinux Pillow 12.3.0 wheel with provenance, license, and hash.
 - Make `dependencies.lock.json` multi-wheel.
 - Generalize `EXPECTED_PLATFORM` and the `sys.platform == "win32"` check in

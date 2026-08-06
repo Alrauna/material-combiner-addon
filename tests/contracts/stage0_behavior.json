@@ -20,7 +20,8 @@
   },
   "cats_golden_atlas": {
     "dimensions": [32, 32],
-    "sha256": "3842e3a4fa65d6d9f6acedb77cbcc932c633b2c511acb6aaccf91565439a26de"
+    "sha256": "3842e3a4fa65d6d9f6acedb77cbcc932c633b2c511acb6aaccf91565439a26de",
+    "pixel_sha256": "dc92b23edf4633eea0bc22e56dea9643234767bec1e13e43e9667a06771f76e5"
   },
   "expanded_fixture_atlases": {
     "unsaved_external": {
