@@ -225,16 +225,21 @@ def _run_case(name: str, *, cats: bool, expected) -> dict:
     with PILImage.open(path) as image:
         dimensions = list(image.size)
         mode = image.mode
+        pixel_sha256 = hashlib.sha256(image.tobytes()).hexdigest()
     sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
     assert dimensions == expected["dimensions"]
-    assert sha256 == expected["sha256"]
+    # Assert decoded pixels, not PNG bytes. The container encoding depends on
+    # which zlib implementation Pillow links (zlib-ng on Windows, stock zlib
+    # on Linux), so file hashes differ across platforms for identical images.
+    assert pixel_sha256 == expected["pixel_sha256"], pixel_sha256
     assert mode == "RGBA"
     assert (scene.smc_size, scene.smc_gaps) == original_settings
     return {
         "result": ["FINISHED"],
         "filename": path.name,
         "dimensions": dimensions,
-        "sha256": sha256,
+        "pixel_sha256": pixel_sha256,
+        "file_sha256": sha256,
         "settings_before_after": list(original_settings),
     }
 

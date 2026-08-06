@@ -53,9 +53,7 @@ def validate_member(name: str) -> None:
         raise ValueError(f"Unsafe wheel member: {name}")
 
 
-def main() -> int:
-    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
-    dependency = lock["dependencies"][0]
+def verify_dependency(dependency: dict) -> list[str]:
     wheel = ROOT / dependency["wheel"]
     errors: list[str] = []
 
@@ -85,14 +83,17 @@ def main() -> int:
             if name.endswith(".dist-info/WHEEL")
         )
         wheel_metadata = archive.read(wheel_file).decode("utf-8")
-        expected_tag = (
-            f"{dependency['python_tag']}-"
-            f"{dependency['abi_tag']}-win_amd64"
-        )
         if f"Wheel-Version: {SUPPORTED_WHEEL_VERSION}" not in wheel_metadata:
             errors.append("unsupported-wheel-version")
-        if f"Tag: {expected_tag}" not in wheel_metadata:
-            errors.append("wheel-tag-mismatch")
+        # A compressed tag set such as "manylinux_2_27_x86_64.manylinux_2_28_
+        # x86_64" is written to WHEEL as one expanded Tag row per platform.
+        for platform_tag in dependency["platform_tag"].split("."):
+            expected_tag = (
+                f"{dependency['python_tag']}-"
+                f"{dependency['abi_tag']}-{platform_tag}"
+            )
+            if f"Tag: {expected_tag}" not in wheel_metadata:
+                errors.append(f"wheel-tag-mismatch:{expected_tag}")
 
         record_file = next(
             name for name in archive.namelist()
@@ -123,15 +124,35 @@ def main() -> int:
         license_name = dependency["license_file"]
         if sha256(archive.read(license_name)) != dependency["license_sha256"]:
             errors.append("license-hash-mismatch")
-        native_name = f"PIL/_imaging.{dependency['abi_tag']}-win_amd64.pyd"
-        if native_name not in archive.namelist():
+        if dependency["native_module"] not in archive.namelist():
             errors.append("native-module-missing")
 
+    return errors
+
+
+def main() -> int:
+    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    dependencies = lock["dependencies"]
+    wheels = []
+    for dependency in dependencies:
+        errors = verify_dependency(dependency)
+        wheels.append(
+            {
+                "platform": dependency["platform"],
+                "wheel": dependency["wheel"],
+                "sha256": sha256_file(ROOT / dependency["wheel"]),
+                "errors": errors,
+            }
+        )
+
+    platforms = [entry["platform"] for entry in wheels]
     report = {
-        "valid": not errors,
-        "wheel": dependency["wheel"],
-        "sha256": sha256_file(wheel),
-        "errors": errors,
+        "valid": (
+            bool(wheels)
+            and not any(entry["errors"] for entry in wheels)
+            and len(set(platforms)) == len(platforms)
+        ),
+        "wheels": wheels,
     }
     print(json.dumps(report, indent=2))
     return 0 if report["valid"] else 1

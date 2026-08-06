@@ -4,10 +4,14 @@ This repository contains Shotariya's Material Combiner, a Blender extension
 for combining material textures into atlases to reduce draw calls.
 
 The current development target is the 3.1.0 release for Blender 5.2 LTS on
-Windows x64. The extension bundles Pillow through Blender's extension wheel
-mechanism. Other Blender versions or platforms are not supported unless they
-are separately validated and the manifest, dependency metadata, tests, and
-documentation are updated.
+Windows x64 and Linux x64. The extension bundles one reviewed Pillow wheel per
+platform through Blender's extension wheel mechanism. Other Blender versions
+or platforms are not supported unless they are separately validated and the
+manifest, dependency metadata, tests, and documentation are updated.
+
+Atlas goldens assert decoded pixel content, not PNG file bytes. Pillow links
+zlib-ng on Windows and stock zlib on Linux, so identical images compress to
+different files. Do not reintroduce file-hash assertions for atlas output.
 
 Prepare changes for continued development and eventual GitHub publication.
 Favor conservative, reviewable changes and preserve existing behavior unless
