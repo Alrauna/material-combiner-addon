@@ -5,12 +5,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+ADDON = ROOT / "addon"
 
 # Runtime modules that ship to users. Historical attribution in README.md is
 # intentional and is checked separately.
 SHIPPED_SOURCES = [
-    ROOT / "ui" / "credits_panel.py",
-    ROOT / "operators" / "browser.py",
+    ADDON / "ui" / "credits_panel.py",
+    ADDON / "operators" / "browser.py",
 ]
 
 STALE_OWNERS = ("teamneoneko", "neoneko.xyz", "Grim-es")
@@ -25,7 +26,7 @@ class ProjectLinkTests(unittest.TestCase):
                     self.assertNotIn(owner, text)
 
     def test_credits_panel_does_not_link_discord(self):
-        text = (ROOT / "ui" / "credits_panel.py").read_text(encoding="utf-8")
+        text = (ADDON / "ui" / "credits_panel.py").read_text(encoding="utf-8")
         self.assertNotIn("discord.", text)
         self.assertNotIn("DISCORD_URL", text)
 

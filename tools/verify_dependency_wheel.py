@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / "addon"
 LOCK_PATH = ROOT / "dependencies.lock.json"
 SUPPORTED_WHEEL_VERSION = "1.0"
 

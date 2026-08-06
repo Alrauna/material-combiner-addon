@@ -7,7 +7,9 @@ from dataclasses import replace
 from pathlib import Path
 
 
-MODULE_PATH = Path(__file__).resolve().parents[2] / "dependency_status.py"
+MODULE_PATH = (
+    Path(__file__).resolve().parents[2] / "addon" / "dependency_status.py"
+)
 SPEC = importlib.util.spec_from_file_location("smc_dependency_status", MODULE_PATH)
 dependency_status = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

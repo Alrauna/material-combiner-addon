@@ -46,17 +46,11 @@ foreach ($directory in @(
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
 
-$excluded = @(
-    ".git",
-    ".ruff_cache",
-    "__pycache__",
-    "build",
-    "dist",
-    ".codex-assessment",
-    ".local-references",
-    ".packaged-releases"
-)
-Get-ChildItem -LiteralPath $repo -Force | Where-Object {
+# Only the extension source is copied. Tests, tools, and documentation live
+# outside it and run from the repository.
+$source = Join-Path $repo "addon"
+$excluded = @("__pycache__")
+Get-ChildItem -LiteralPath $source -Force | Where-Object {
     $_.Name -notin $excluded
 } | Copy-Item -Destination $extension -Recurse -Force
 if ($ExcludeWheel) {
@@ -99,7 +93,7 @@ if (-not $Foreground) {
 }
 $blenderArguments += @(
     "--python",
-    (Join-Path $extensionRuntime $TestScript)
+    (Join-Path $repo $TestScript)
 )
 foreach ($argument in $blenderArguments) {
     $start.ArgumentList.Add($argument)
@@ -118,7 +112,7 @@ $environment = @{
     "TEMP" = Join-Path $profileRuntime "temp"
     "TMP" = Join-Path $profileRuntime "temp"
     "PYTHONNOUSERSITE" = "1"
-    "SMC_TEST_CONTRACT" = Join-Path $extensionRuntime "tests\contracts\public_api_contract.json"
+    "SMC_TEST_CONTRACT" = Join-Path $repo "tests\contracts\public_api_contract.json"
     "SMC_TEST_RESULT" = Join-Path $profileRuntime "results\$ResultName"
 }
 if ($PillowRoot) {

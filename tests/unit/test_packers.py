@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 
 
-PACKERS = Path(__file__).resolve().parents[2] / "utils" / "packers"
+PACKERS = (
+    Path(__file__).resolve().parents[2] / "addon" / "utils" / "packers"
+)
 
 
 def _load(name: str, filename: str):

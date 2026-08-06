@@ -55,7 +55,7 @@ material-combiner-addon
   written in the script. You need to manually rename the nodes to their own names, or switch the blender version to
   English and regenerate the nodes by re-importing the model.
 - You are using an unsupported shader (Surface property of material) or incorrect node names. You can check
-  [utils/materials.py](utils/materials.py) to see which shaders are supported and what node names should be used. For
+  [addon/utils/materials.py](addon/utils/materials.py) to see which shaders are supported and what node names should be used. For
   more background, refer to the original discussion on GitHub:
   [Issue #98](https://github.com/Grim-es/material-combiner-addon/issues/98).
 - If objects already share the same material with the same texture, they will not be atlased because they are already
@@ -65,7 +65,8 @@ material-combiner-addon
 
 Pillow is bundled in the complete platform package and is loaded through
 Blender's extension system. Material Combiner never downloads or installs it
-at runtime.
+at runtime. Its provenance, license, and hash are recorded in
+[addon/THIRD_PARTY.md](addon/THIRD_PARTY.md).
 
 If the Dependency Status panel appears:
 

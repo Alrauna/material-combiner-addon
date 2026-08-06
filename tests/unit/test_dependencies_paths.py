@@ -11,7 +11,7 @@ from pathlib import Path
 # synthetic package with bpy stubbed out.
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 _package = types.ModuleType("smc_dependencies_host")
-_package.__path__ = [str(Path(__file__).resolve().parents[2])]
+_package.__path__ = [str(Path(__file__).resolve().parents[2] / "addon")]
 sys.modules.setdefault("smc_dependencies_host", _package)
 dependencies = importlib.import_module("smc_dependencies_host.dependencies")
 
