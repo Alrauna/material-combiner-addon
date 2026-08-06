@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: CI / ${{ matrix.label }} — Blender 5.2
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            label: Windows
+            platform: windows
+          - runner: ubuntu-24.04
+            label: Linux
+            platform: linux
+    steps:
+      # Actions are pinned by commit, not tag, so a moved tag cannot change
+      # what runs. actions/checkout v7.0.1.
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # The atlas undo and repeatability check needs a real window. Without a
+      # display it reports that it needs a foreground context and never runs.
+      - name: Install a virtual framebuffer
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Verify and extract Blender 5.2.0
+        id: blender
+        shell: bash
+        run: >-
+          python tools/ci.py prepare-blender
+          --platform '${{ matrix.platform }}'
+          --output-dir '${{ runner.temp }}/blender'
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Run unit tests
+        shell: bash
+        run: '"${{ steps.blender.outputs.python }}" -m unittest discover -s tests/unit -p "test_*.py" -v'
+
+      - name: Verify bundled wheels
+        shell: bash
+        run: '"${{ steps.blender.outputs.python }}" tools/verify_dependency_wheel.py'
+
+      - name: Validate extension source
+        shell: bash
+        run: '"${{ steps.blender.outputs.blender }}" --factory-startup --command extension validate addon'
+
+      - name: Run source-tree suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_suite () {
+            local name="$1"; shift
+            echo "::group::source suite: $name"
+            python tests/run_tests.py \
+              --blender "${{ steps.blender.outputs.blender }}" \
+              --work "${{ runner.temp }}/work-$name" \
+              source "$@"
+            echo "::endgroup::"
+          }
+          run_suite public-api  --script tests/blender/verify_public_api.py         --result r.json
+          run_suite ui          --script tests/blender/verify_blender52_ui.py       --result r.json
+          run_suite lifecycle   --script tests/blender/verify_atomic_lifecycle.py   --result r.json
+          run_suite preflight   --script tests/blender/verify_preflight_failures.py --result r.json
+          run_suite dep-absent  --script tests/blender/verify_dependency_absent.py  --result r.json --exclude-wheel
+          run_suite atlas       --script tests/blender/verify_atlas_workflows.py    --result r.json --foreground
+
+      # Regression cover for the Windows extended-length path handling. The
+      # extension root must stay under MAX_PATH while files inside exceed it;
+      # see tests/README.md before changing the padding.
+      - name: Run the long-path suite
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: >-
+          python tests/run_tests.py
+          --blender "${{ steps.blender.outputs.blender }}"
+          --work "${{ runner.temp }}/work-longpath"
+          source --script tests/blender/verify_atlas_workflows.py
+          --result r.json --long-path
+
+      - name: Build the extension
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/release"
+          "${{ steps.blender.outputs.blender }}" --factory-startup \
+            --command extension build --source-dir addon \
+            --output-dir "${{ runner.temp }}/release"
+          archive=$(ls "${{ runner.temp }}"/release/*.zip)
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "built $archive"
+
+      - name: Validate the built package
+        shell: bash
+        run: '"${{ steps.blender.outputs.blender }}" --factory-startup --command extension validate "${{ steps.build.outputs.archive }}"'
+
+      - name: Run installed-package suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_pkg () {
+            local name="$1"; shift
+            echo "::group::package suite: $name"
+            python tests/run_tests.py \
+              --blender "${{ steps.blender.outputs.blender }}" \
+              --work "${{ runner.temp }}/pkg-$name" \
+              --drive-letter O \
+              package --package "${{ steps.build.outputs.archive }}" "$@"
+            echo "::endgroup::"
+          }
+          run_pkg dependency --script tests/blender/verify_packaged_dependency.py --result r.json
+          run_pkg public-api --script tests/blender/verify_public_api.py          --result r.json
+          run_pkg atlas      --script tests/blender/verify_atlas_workflows.py     --result r.json
+
+      # --strict: locally, CATS drift only warns so developers are not blocked.
+      # Here the archive is executed on a runner, and the pin is the only
+      # integrity control, so drift must stop the build.
+      - name: Fetch and verify CATS
+        id: cats
+        shell: bash
+        run: >-
+          python tools/fetch_cats.py
+          --output-dir '${{ runner.temp }}/cats' --strict
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Run the CATS checkpoint
+        shell: bash
+        run: >-
+          python tests/run_tests.py
+          --blender "${{ steps.blender.outputs.blender }}"
+          --work "${{ runner.temp }}/checkpoint"
+          --drive-letter N
+          checkpoint --package "${{ steps.build.outputs.archive }}"
+          --cats "${{ steps.cats.outputs.extension }}"
+          --cats-sha256 "${{ steps.cats.outputs.extension_sha256 }}"
+
+      # actions/upload-artifact v4.6.2.
+      - name: Upload results on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: results-${{ matrix.label }}
+          path: ${{ runner.temp }}/**/profile/results/**
+          retention-days: 7
+          if-no-files-found: ignore

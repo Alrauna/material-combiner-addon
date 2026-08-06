@@ -78,12 +78,27 @@ Original scope, for reference:
   CATS behavioral evidence regenerated against the published build.
 - Keep the local `.local-references` path working for offline runs.
 
-### 4. CI workflow
+### 4. CI workflow (complete)
 
-**CI must fetch CATS with `--strict`.** Drift warns locally so developers are
-not blocked, but on a runner the archive is executed with a privileged token,
-and the pin is the only integrity control. Local runs stay lenient; CI does
-not.
+`.github/workflows/ci.yml` plus `tools/ci.py`. Windows and Linux matrix,
+`fail-fast: false`, `permissions: contents: read`, actions pinned by commit.
+
+Blender is downloaded and verified: the official checksum manifest is fetched
+over three independent resolvers, all three must be byte-identical, and the
+result must match a hash committed in `tools/ci.py`.
+
+CI fetches CATS with `--strict`. Drift warns locally so developers are not
+blocked, but on a runner the archive is executed with a privileged token and
+the pin is the only integrity control.
+
+Both former gaps are covered: Linux installs xvfb so the foreground atlas
+undo check really runs, and Windows runs the long-path suite.
+
+Deviation from the separator: its `ci.py` hand-rolls a DNS-over-TLS client
+against Quad9, roughly 150 lines of wire-format parsing. This uses curl's
+`--doh-url` against two DoH providers instead, for the same three-resolver
+property without the parser. Quad9 was tried first and could not resolve
+through curl's DoH client, so Google DNS is the third resolver.
 
 Port `scripts/ci.py` from the separator, keeping the three-resolver checksum
 consensus intact; change only the platform table, archive name, and release

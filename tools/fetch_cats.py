@@ -203,12 +203,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Treat drift as a failure instead of a warning.",
     )
+    parser.add_argument(
+        "--github-output",
+        type=Path,
+        help="Append the unwrapped extension path for a later CI step.",
+    )
     arguments = parser.parse_args(argv)
 
     report, exit_code = fetch(
         arguments.output_dir, arguments.archive, arguments.strict
     )
     print(json.dumps(report, indent=2))
+    if arguments.github_output is not None and exit_code == 0:
+        with arguments.github_output.open(
+            "a", encoding="utf-8", newline="\n"
+        ) as stream:
+            stream.write(f"extension={report['extension']}\n")
+            stream.write(f"extension_sha256={report['extension_sha256']}\n")
     for message in report["drift"]:
         level = "error" if report["drift_is_fatal"] else "warning"
         print(f"{level}: CATS reference drift: {message}", file=sys.stderr)
