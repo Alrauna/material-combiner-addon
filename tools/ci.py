@@ -21,7 +21,6 @@ import socket
 import ssl
 import struct
 import subprocess
-import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -284,7 +283,9 @@ def download(
         "--fail",
         "--silent",
         "--show-error",
-        "--location",
+        # Deliberately no --location. download.blender.org does not redirect,
+        # and following one would allow an HTTPS to HTTP downgrade, since
+        # curl governs redirect protocols separately from --proto.
         "--connect-timeout", str(CONNECT_TIMEOUT_SECONDS),
         "--max-time", str(TOTAL_TIMEOUT_SECONDS),
         "--retry", str(RETRIES),
@@ -351,8 +352,6 @@ def prepare_blender(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     checksum_host = urlparse(CHECKSUM_URL).hostname
-    if checksum_host is None:
-        raise ValueError("checksum URL requires a hostname")
     paths = [output_dir / f"checksums-{index}.txt" for index in range(3)]
     download(CHECKSUM_URL, paths[0])
     download(CHECKSUM_URL, paths[1], doh_url=CLOUDFLARE_DOH_URL)

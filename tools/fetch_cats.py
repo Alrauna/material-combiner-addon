@@ -69,6 +69,10 @@ def _get(url: str, accept: str) -> bytes:
     ) as response:
         if response.status != 200:
             raise RuntimeError(f"HTTP {response.status} for {url}")
+        # Release assets redirect to a CDN, so redirects must be followed.
+        # urllib would follow one to plain HTTP, so check where it landed.
+        if not response.url.startswith("https://"):
+            raise RuntimeError(f"redirected off HTTPS: {response.url}")
         return response.read()
 
 

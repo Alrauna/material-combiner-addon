@@ -4,6 +4,7 @@ import importlib.util
 import socket
 import struct
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -90,8 +91,6 @@ class GithubOutputTests(unittest.TestCase):
     """A newline in a value would let it declare further step outputs."""
 
     def test_writes_single_line_values(self):
-        import tempfile
-
         target = Path(tempfile.mkdtemp()) / "out.txt"
         target.touch()
         ci.write_github_output(target, blender="/x/blender", python="/x/py")
@@ -101,8 +100,6 @@ class GithubOutputTests(unittest.TestCase):
         )
 
     def test_rejects_embedded_newlines(self):
-        import tempfile
-
         target = Path(tempfile.mkdtemp()) / "out.txt"
         target.touch()
         for payload in ("a\nevil=1", "a\revil=1"):
@@ -118,10 +115,9 @@ def dns_response(
     answers: list[bytes],
     *,
     flags: int = 0x8180,
-    question_count: int = 1,
 ) -> bytes:
     header = struct.pack(
-        "!HHHHHH", transaction_id, flags, question_count, len(answers), 0, 0
+        "!HHHHHH", transaction_id, flags, 1, len(answers), 0, 0
     )
     return header + question + b"".join(answers)
 
