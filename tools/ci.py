@@ -68,6 +68,21 @@ def sha256_file(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def write_github_output(path: Path, **values: object) -> None:
+    """Append step outputs, refusing any value that could inject a row.
+
+    A newline in a value would let the value declare further outputs of its
+    own, so reject it rather than write it.
+    """
+    for key, value in values.items():
+        text = str(value)
+        if "\n" in text or "\r" in text:
+            raise ValueError(f"GitHub output must be single-line: {key}")
+    with path.open("a", encoding="utf-8", newline="\n") as stream:
+        for key, value in values.items():
+            stream.write(f"{key}={value}\n")
+
+
 def parse_checksum_manifest(payload: bytes) -> dict[str, str]:
     result: dict[str, str] = {}
     for line in payload.decode("utf-8").splitlines():
@@ -204,9 +219,7 @@ def prepare_blender(
 
     python = bundled_python(blender, metadata["python_glob"])
     if github_output is not None:
-        with github_output.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write(f"blender={blender}\n")
-            stream.write(f"python={python}\n")
+        write_github_output(github_output, blender=blender, python=python)
     print(f"blender: {blender}")
     print(f"python:  {python}")
     return blender, python

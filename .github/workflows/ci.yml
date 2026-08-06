@@ -167,16 +167,24 @@ jobs:
           --output-dir '${{ runner.temp }}/cats' --strict
           --github-output "$GITHUB_OUTPUT"
 
+      # The CATS path derives from a remote release asset name, so it reaches
+      # the shell through the environment rather than being interpolated into
+      # the command, where a crafted value could break out of the quoting.
       - name: Run the CATS checkpoint
         shell: bash
+        env:
+          BLENDER: ${{ steps.blender.outputs.blender }}
+          ARCHIVE: ${{ steps.build.outputs.archive }}
+          CATS_EXTENSION: ${{ steps.cats.outputs.extension }}
+          CATS_SHA256: ${{ steps.cats.outputs.extension_sha256 }}
         run: >-
           python tests/run_tests.py
-          --blender "${{ steps.blender.outputs.blender }}"
+          --blender "$BLENDER"
           --work "${{ runner.temp }}/checkpoint"
           --drive-letter N
-          checkpoint --package "${{ steps.build.outputs.archive }}"
-          --cats "${{ steps.cats.outputs.extension }}"
-          --cats-sha256 "${{ steps.cats.outputs.extension_sha256 }}"
+          checkpoint --package "$ARCHIVE"
+          --cats "$CATS_EXTENSION"
+          --cats-sha256 "$CATS_SHA256"
 
       # Uploaded on success too. A green run otherwise cannot show whether the
       # undo check ran or reported itself skipped, which is exactly the

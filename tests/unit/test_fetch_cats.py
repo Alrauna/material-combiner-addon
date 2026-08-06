@@ -120,6 +120,30 @@ class DriftPolicyTests(unittest.TestCase):
         self.assertEqual(1, exit_code)
 
 
+class GithubOutputTests(unittest.TestCase):
+    """The extension path derives from a remote asset name."""
+
+    def setUp(self):
+        self.target = Path(tempfile.mkdtemp()) / "out.txt"
+        self.target.touch()
+
+    def test_writes_single_line_values(self):
+        fetch_cats.write_github_output(
+            self.target, extension="/x/cats.zip", extension_sha256="a" * 64
+        )
+        self.assertEqual(
+            ["extension=/x/cats.zip", f"extension_sha256={'a' * 64}"],
+            self.target.read_text(encoding="utf-8").splitlines(),
+        )
+
+    def test_rejects_embedded_newlines(self):
+        with self.assertRaises(ValueError):
+            fetch_cats.write_github_output(
+                self.target, extension="/x/cats.zip\nextension_sha256=0"
+            )
+        self.assertEqual("", self.target.read_text(encoding="utf-8"))
+
+
 class ReferenceFileTests(unittest.TestCase):
     def test_reference_records_both_hashes_and_the_extension_id(self):
         for key in (

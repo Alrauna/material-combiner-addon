@@ -84,6 +84,32 @@ class DownloadCommandTests(unittest.TestCase):
             )
 
 
+class GithubOutputTests(unittest.TestCase):
+    """A newline in a value would let it declare further step outputs."""
+
+    def test_writes_single_line_values(self):
+        import tempfile
+
+        target = Path(tempfile.mkdtemp()) / "out.txt"
+        target.touch()
+        ci.write_github_output(target, blender="/x/blender", python="/x/py")
+        self.assertEqual(
+            ["blender=/x/blender", "python=/x/py"],
+            target.read_text(encoding="utf-8").splitlines(),
+        )
+
+    def test_rejects_embedded_newlines(self):
+        import tempfile
+
+        target = Path(tempfile.mkdtemp()) / "out.txt"
+        target.touch()
+        for payload in ("a\nevil=1", "a\revil=1"):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    ci.write_github_output(target, blender=payload)
+        self.assertEqual("", target.read_text(encoding="utf-8"))
+
+
 class PlatformTableTests(unittest.TestCase):
     def test_three_independent_resolvers_are_configured(self):
         self.assertEqual(3, len(ci.RESOLVERS))

@@ -88,8 +88,16 @@ over three independent resolvers, all three must be byte-identical, and the
 result must match a hash committed in `tools/ci.py`.
 
 CI fetches CATS with `--strict`. Drift warns locally so developers are not
-blocked, but on a runner the archive is executed with a privileged token and
-the pin is the only integrity control.
+blocked, but CI must not silently validate against a different CATS build
+than the one pinned, and the pin is the only integrity control on an archive
+whose code is executed during the checkpoint.
+
+An earlier draft of this justified `--strict` by saying the archive runs with
+a privileged token. That was wrong. The repository's default workflow
+permission is `read` and the CI job pins `contents: read`, so the token is
+not privileged. `--strict` is about reproducibility and knowing what was
+actually tested, not about protecting a powerful credential. It matters more
+once the release workflow exists, since that job does hold `contents: write`.
 
 Both former gaps are covered: Linux installs xvfb so the foreground atlas
 undo check really runs, and Windows runs the long-path suite.
