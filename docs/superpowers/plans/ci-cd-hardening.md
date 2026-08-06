@@ -102,11 +102,18 @@ once the release workflow exists, since that job does hold `contents: write`.
 Both former gaps are covered: Linux installs xvfb so the foreground atlas
 undo check really runs, and Windows runs the long-path suite.
 
-Deviation from the separator: its `ci.py` hand-rolls a DNS-over-TLS client
-against Quad9, roughly 150 lines of wire-format parsing. This uses curl's
-`--doh-url` against two DoH providers instead, for the same three-resolver
-property without the parser. Quad9 was tried first and could not resolve
-through curl's DoH client, so Google DNS is the third resolver.
+The three resolution paths match the separator: system DNS, Cloudflare over
+DoH through curl, and Quad9 over DNS-over-TLS spoken directly and handed to
+curl with `--resolve`.
+
+The hand-rolled DNS-over-TLS client is deliberate and must stay. Using curl's
+DoH client for all three would make every path depend on one resolver
+implementation, so a defect or compromise there could affect all of them at
+once. Speaking DNS-over-TLS directly keeps the third path independent. An
+earlier revision replaced it with curl DoH against Google, on the mistaken
+basis that Quad9 was unreachable; what had actually been tested was Quad9's
+DoH endpoint, which is a different service from DNS-over-TLS on port 853.
+The DoT path resolves correctly. Do not simplify this away again.
 
 Port `scripts/ci.py` from the separator, keeping the three-resolver checksum
 consensus intact; change only the platform table, archive name, and release

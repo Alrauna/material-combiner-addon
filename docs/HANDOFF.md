@@ -21,12 +21,16 @@ fetched over three independent resolvers, all three must return byte-identical
 content, and the agreed manifest must match a hash committed in `tools/ci.py`.
 Both committed hashes were verified against the published manifest.
 
-The separator's `ci.py` hand-rolls a DNS-over-TLS client against Quad9, about
-150 lines of DNS wire-format parsing. This uses curl's `--doh-url` against two
-DoH providers for the same property. Quad9 was tried first and could not
-resolve through curl's DoH client on this network, so Google DNS is the third
-resolver; only endpoints confirmed reachable belong there, because an
-unreachable resolver fails the build.
+Three resolution paths, matching the separator: system DNS, Cloudflare over
+DoH through curl, and Quad9 over DNS-over-TLS spoken directly and handed to
+curl with `--resolve`.
+
+The hand-rolled DNS-over-TLS client is an intentional security decision and
+must not be replaced with curl's DoH client. Routing all three paths through
+one resolver implementation would defeat the point of having three. A revision
+did replace it, wrongly concluding Quad9 was unreachable after testing its DoH
+endpoint rather than DNS-over-TLS on port 853; the DoT path resolves fine. The
+parser now has unit tests covering its rejection paths.
 
 Both former CI gaps are covered: Linux installs xvfb so the foreground atlas
 undo check really runs, and Windows runs the long-path suite.

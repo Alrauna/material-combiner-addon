@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import socket
+import struct
 import sys
 import unittest
 from pathlib import Path
@@ -110,13 +112,139 @@ class GithubOutputTests(unittest.TestCase):
         self.assertEqual("", target.read_text(encoding="utf-8"))
 
 
-class PlatformTableTests(unittest.TestCase):
-    def test_three_independent_resolvers_are_configured(self):
-        self.assertEqual(3, len(ci.RESOLVERS))
-        self.assertIsNone(ci.RESOLVERS[0])
-        hosts = {r.split("/")[2] for r in ci.RESOLVERS if r}
-        self.assertEqual(2, len(hosts))
+def dns_response(
+    transaction_id: int,
+    question: bytes,
+    answers: list[bytes],
+    *,
+    flags: int = 0x8180,
+    question_count: int = 1,
+) -> bytes:
+    header = struct.pack(
+        "!HHHHHH", transaction_id, flags, question_count, len(answers), 0, 0
+    )
+    return header + question + b"".join(answers)
 
+
+def a_record(name_offset: int, address: str) -> bytes:
+    pointer = struct.pack("!H", 0xC000 | name_offset)
+    return pointer + struct.pack("!HHIH", 1, 1, 60, 4) + socket.inet_aton(
+        address
+    )
+
+
+class DnsParsingTests(unittest.TestCase):
+    """The DNS wire parser is hand-rolled, so its rejections are load-bearing."""
+
+    def setUp(self):
+        self.transaction_id = 0x1234
+        self.question = (
+            b"\x08download\x07blender\x03org\x00" + struct.pack("!HH", 1, 1)
+        )
+
+    def test_parses_a_records(self):
+        message = dns_response(
+            self.transaction_id,
+            self.question,
+            [a_record(12, "1.2.3.4"), a_record(12, "5.6.7.8")],
+        )
+        self.assertEqual(
+            ("1.2.3.4", "5.6.7.8"),
+            ci._parse_dns_a_response(
+                message, self.transaction_id, self.question
+            ),
+        )
+
+    def test_rejects_mismatched_transaction_id(self):
+        message = dns_response(
+            0xBEEF, self.question, [a_record(12, "1.2.3.4")]
+        )
+        with self.assertRaises(ValueError):
+            ci._parse_dns_a_response(
+                message, self.transaction_id, self.question
+            )
+
+    def test_rejects_a_different_question(self):
+        other = b"\x04evil\x03com\x00" + struct.pack("!HH", 1, 1)
+        message = dns_response(
+            self.transaction_id, other, [a_record(12, "1.2.3.4")]
+        )
+        with self.assertRaises(ValueError):
+            ci._parse_dns_a_response(
+                message, self.transaction_id, self.question
+            )
+
+    def test_rejects_error_rcode_and_truncation(self):
+        for flags in (0x8183, 0x8380):
+            with self.subTest(flags=hex(flags)):
+                message = dns_response(
+                    self.transaction_id,
+                    self.question,
+                    [a_record(12, "1.2.3.4")],
+                    flags=flags,
+                )
+                with self.assertRaises(ValueError):
+                    ci._parse_dns_a_response(
+                        message, self.transaction_id, self.question
+                    )
+
+    def test_rejects_answer_for_another_owner(self):
+        """An answer must belong to the name that was asked about."""
+        foreign = b"\x04evil\x03com\x00"
+        record = foreign + struct.pack("!HHIH", 1, 1, 60, 4)
+        record += socket.inet_aton("6.6.6.6")
+        message = dns_response(self.transaction_id, self.question, [record])
+        with self.assertRaises(ValueError):
+            ci._parse_dns_a_response(
+                message, self.transaction_id, self.question
+            )
+
+    def test_rejects_pointer_to_an_unknown_offset(self):
+        record = struct.pack("!H", 0xC000 | 200)
+        record += struct.pack("!HHIH", 1, 1, 60, 4)
+        record += socket.inet_aton("1.2.3.4")
+        message = dns_response(self.transaction_id, self.question, [record])
+        with self.assertRaises(ValueError):
+            ci._parse_dns_a_response(
+                message, self.transaction_id, self.question
+            )
+
+    def test_rejects_truncated_message(self):
+        with self.assertRaises(ValueError):
+            ci._parse_dns_a_response(b"\x00\x01", self.transaction_id, b"")
+
+    def test_rejects_response_without_an_address(self):
+        message = dns_response(self.transaction_id, self.question, [])
+        with self.assertRaises(ValueError):
+            ci._parse_dns_a_response(
+                message, self.transaction_id, self.question
+            )
+
+
+class ResolverConfigurationTests(unittest.TestCase):
+    def test_doh_and_resolved_addresses_are_mutually_exclusive(self):
+        with self.assertRaises(ValueError):
+            ci.download(
+                "https://example.com/x",
+                Path("out"),
+                doh_url=ci.CLOUDFLARE_DOH_URL,
+                resolved_addresses=("1.2.3.4",),
+            )
+
+    def test_resolved_addresses_are_bounded(self):
+        too_many = tuple(f"10.0.0.{n}" for n in range(20))
+        with self.assertRaises(ValueError):
+            ci.download(
+                "https://example.com/x", Path("out"),
+                resolved_addresses=too_many,
+            )
+
+    def test_dns_over_tls_uses_the_dedicated_port(self):
+        self.assertEqual(853, ci.QUAD9_DOT_PORT)
+        self.assertEqual("dns.quad9.net", ci.QUAD9_DOT_HOST)
+
+
+class PlatformTableTests(unittest.TestCase):
     def test_every_platform_pins_a_full_hash(self):
         for name, entry in ci.PLATFORMS.items():
             with self.subTest(platform=name):
