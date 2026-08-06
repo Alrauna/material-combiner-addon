@@ -44,10 +44,17 @@ tests skipped.
 - Workstream 5: release workflow and branch protection. Protection must come
   last, because required status checks reference job names that do not exist
   until CI is merged.
-- Still not covered anywhere: the MAX_PATH defect class. Runner and CI temp
-  paths are short, so exercising it needs a deliberately long work directory.
-- The atlas undo check needs `source --foreground`; it self-skips in
-  background, so a green CI run will not cover it.
+- Both previously open CI gaps are closed in the runner. `source --long-path`
+  covers the extended-length path handling, proven by reverting `_plain_path`
+  and watching only the long-path run fail. `source --foreground` now uses
+  `xvfb-run` on display-less Linux and refuses to start if xvfb is missing,
+  so the undo check cannot silently skip.
+- Two residual limits, both stated in `tests/README.md`: the `_load_lock`
+  defect does not reproduce on a machine with `LongPathsEnabled` set, so a
+  green long-path run there does not cover it; and the xvfb wrapper itself
+  could not be executed locally because installing xvfb needs sudo. Its logic
+  is unit-tested and the no-display refusal is verified, but the first real
+  xvfb run will happen on CI.
 - The universal ZIP is 14.2 MB because it carries both wheels.
   `--split-platforms` would give roughly 7 MB per platform but changes release
   artifact naming. Decide during the release workstream.

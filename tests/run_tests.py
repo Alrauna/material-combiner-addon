@@ -29,6 +29,15 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[1]
+# Target length for the installed extension directory in --long-path mode.
+#
+# The defect window is narrow and overshooting hides it. Path.resolve() keeps
+# the \\?\ prefix only when its result exceeds MAX_PATH, so the extension root
+# must stay under 260 (resolving to a plain path) while files inside it exceed
+# 260 (resolving with the prefix). That mix is what broke the dependency trust
+# check. Pad past 260 here and every path is prefixed, everything agrees, and
+# the regression passes even when the fix is reverted.
+LONG_PATH_EXTENSION_TARGET = 245
 ADDON = REPO / "addon"
 EXTENSION_ID = "shotariyas_material_combiner"
 CATS_ID = "cats_blender_plugin"
@@ -47,6 +56,34 @@ PROFILE_DIRECTORIES = (
 )
 
 
+def fs_path(path: Path) -> Path:
+    """Return a path usable past MAX_PATH.
+
+    GitHub's Windows images do not enable long paths system-wide, so the
+    runner must opt in with extended-length syntax rather than assume the
+    registry setting is present.
+    """
+    if os.name != "nt":
+        return path
+    text = str(path.absolute())
+    if text.startswith("\\\\?\\"):
+        return path
+    if text.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + text[2:])
+    return Path("\\\\?\\" + text)
+
+
+def pad_to_long_path(work: Path) -> Path:
+    """Nest the work directory so it lands inside the defect window."""
+    suffix = len(
+        str(Path("profile") / "extensions" / "user_default" / EXTENSION_ID)
+    )
+    needed = LONG_PATH_EXTENSION_TARGET - suffix - len(str(work)) - 2
+    if needed <= 0:
+        return work
+    return work / ("p" * needed)
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -58,17 +95,23 @@ def sha256_file(path: Path) -> str:
 class Profile:
     """An isolated Blender profile inside a work directory."""
 
-    def __init__(self, work: Path, drive_letter: str | None) -> None:
-        self.work = work
-        self.root = work / "profile"
+    def __init__(
+        self,
+        work: Path,
+        drive_letter: str | None,
+        long_path: bool = False,
+    ) -> None:
+        self.base = work
+        self.work = pad_to_long_path(work) if long_path else work
+        self.root = self.work / "profile"
         self.results = self.root / "results"
         self._drive = drive_letter if os.name == "nt" else None
 
     def create(self) -> None:
-        if self.work.exists():
-            shutil.rmtree(self.work)
+        if fs_path(self.base).exists():
+            shutil.rmtree(fs_path(self.base))
         for name in PROFILE_DIRECTORIES:
-            (self.root / name).mkdir(parents=True, exist_ok=True)
+            fs_path(self.root / name).mkdir(parents=True, exist_ok=True)
 
     def __enter__(self) -> Profile:
         self.create()
@@ -125,6 +168,26 @@ class Profile:
         return env
 
 
+def display_prefix(foreground: bool) -> list[str]:
+    """Return a command prefix giving Blender a display when it needs one.
+
+    The atlas undo check needs a real window. Headless Linux CI has no
+    display, so wrap it in a virtual framebuffer. Without this the check
+    silently reports that it needs a foreground context and never runs.
+    """
+    if not foreground or os.name == "nt":
+        return []
+    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        return []
+    xvfb = shutil.which("xvfb-run")
+    if xvfb is None:
+        raise SystemExit(
+            "Foreground mode needs a display. Install xvfb, or export "
+            "DISPLAY if one is already available."
+        )
+    return [xvfb, "-a", "--server-args=-screen 0 1280x1024x24"]
+
+
 def run_blender(
     blender: Path,
     profile: Profile,
@@ -133,6 +196,7 @@ def run_blender(
     name: str,
     result_name: str | None = None,
     extra_env: dict[str, str] | None = None,
+    prefix: list[str] | None = None,
 ) -> int:
     """Run Blender once, capturing its output beside the results."""
     env = profile.environment()
@@ -142,7 +206,7 @@ def run_blender(
         env.update(extra_env)
 
     completed = subprocess.run(
-        [str(blender), *arguments],
+        [*(prefix or []), str(blender), *arguments],
         env=env,
         capture_output=True,
         text=True,
@@ -152,15 +216,15 @@ def run_blender(
         (completed.stdout, "stdout"),
         (completed.stderr, "stderr"),
     ):
-        (profile.results / f"{name}.{suffix}.log").write_text(
+        fs_path(profile.results / f"{name}.{suffix}.log").write_text(
             stream or "", encoding="utf-8", newline="\n"
         )
 
     exit_code = completed.returncode
     if exit_code == 0 and result_name:
-        if not (profile.results / result_name).is_file():
+        if not fs_path(profile.results / result_name).is_file():
             exit_code = 1
-            with (profile.results / f"{name}.stderr.log").open(
+            with fs_path(profile.results / f"{name}.stderr.log").open(
                 "a", encoding="utf-8", newline="\n"
             ) as stream:
                 stream.write(f"\nBlender did not create {result_name}\n")
@@ -189,7 +253,7 @@ def install_package(
 
 def copy_addon(profile: Profile, exclude_wheel: bool) -> None:
     """Copy only the extension source into the isolated profile."""
-    destination = profile.extension_dir
+    destination = fs_path(profile.extension_dir)
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copytree(
         ADDON,
@@ -208,7 +272,7 @@ def report(payload: dict[str, object], exit_code: int) -> int:
 
 
 def command_source(args: argparse.Namespace) -> int:
-    with Profile(args.work, args.drive_letter) as profile:
+    with Profile(args.work, args.drive_letter, args.long_path) as profile:
         copy_addon(profile, args.exclude_wheel)
         arguments = ["--factory-startup", "--disable-autoexec"]
         if not args.foreground:
@@ -230,12 +294,14 @@ def command_source(args: argparse.Namespace) -> int:
             name="source",
             result_name=args.result,
             extra_env=extra_env,
+            prefix=display_prefix(args.foreground),
         )
         return report(
             {
                 "mode": "source",
                 "script": args.script,
                 "result": str(profile.results / args.result),
+                "extension_path_length": len(str(profile.extension_dir)),
             },
             exit_code,
         )
@@ -378,7 +444,18 @@ def parser() -> argparse.ArgumentParser:
     source.add_argument("--script", required=True)
     source.add_argument("--result", default="result.json")
     source.add_argument("--exclude-wheel", action="store_true")
-    source.add_argument("--foreground", action="store_true")
+    source.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Run Blender with a window, which the atlas undo check needs. "
+        "On Linux without a display, xvfb-run supplies one.",
+    )
+    source.add_argument(
+        "--long-path",
+        action="store_true",
+        help="Nest the work directory so files inside it exceed the Windows "
+        "MAX_PATH limit, exercising the extended-length path handling.",
+    )
     source.add_argument("--pillow-root", default="")
     source.set_defaults(func=command_source)
 
