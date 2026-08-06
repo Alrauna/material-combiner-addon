@@ -2,58 +2,58 @@
 
 ## State
 
-`master` at `e87aab8` has the `addon/` layout. Version 3.1.0 is in the
-manifest; nothing is tagged and no GitHub release exists.
+`master` at `fcf3a1a` has the `addon/` layout and Linux x64 runtime support.
+Version 3.1.0 is in the manifest; nothing is tagged and no GitHub release
+exists.
 
-Branch `feat/linux-support` is the runtime half of workstream 2. The milestone
-plan is in `docs/superpowers/plans/ci-cd-hardening.md`.
+Branch `feat/python-test-runner` is workstream 2b. The milestone plan is in
+`docs/superpowers/plans/ci-cd-hardening.md`.
 
 ## This turn
 
-Linux x64 is now a supported runtime platform, validated on real Linux
-(WSL Ubuntu 24.04, Blender 5.2.0 LTS downloaded and hash-verified against the
-value the separator repository pins).
+`tests/run_tests.py` replaces `run_blender_tests.ps1`, `run_package_test.ps1`,
+and `run_checkpoint_test.ps1` with one cross-platform runner. Stdlib only, no
+dependencies.
 
-- The manylinux Pillow 12.3.0 wheel is committed and hash-verified.
-- `dependencies.lock.json` is schema 2: one entry per platform, each carrying
-  its own `platform_tag`, `native_module`, and license hash. The two wheels'
-  license files genuinely differ, because each bundles the notices of the
-  native libraries built into it.
-- `dependencies.py` resolves the current platform from a table instead of
-  testing `sys.platform == "win32"`, and `_load_lock` selects the entry for
-  that platform.
-- `tools/verify_dependency_wheel.py` verifies every wheel in the lock and
-  expands compressed tag sets such as
-  `manylinux_2_27_x86_64.manylinux_2_28_x86_64` into one expected `Tag:` row
-  each.
+Three modes: `source` copies `addon/` into an isolated profile, `package`
+installs a built ZIP, `checkpoint` installs Material Combiner beside CATS and
+runs the integration, restart, and uninstall sequence.
 
-### Atlas goldens now assert pixel content
+Behaviour preserved from the PowerShell runners: isolated profile with every
+Blender, HOME, APPDATA, cache, and temp path redirected; `PYTHONNOUSERSITE`
+set and `PYTHONPATH` dropped; per-step stdout and stderr logs; failure when a
+suite produces no result file; the Windows `subst` alias, now optional and
+skipped on other platforms; and `--exclude-wheel`, `--foreground`, and
+`--pillow-root`.
 
-Measured on both platforms: dimensions and decoded pixels are identical, PNG
-file bytes are not. Windows Pillow links zlib-ng 1.3.1, Linux links stock zlib
-1.3.1, so the same image compresses differently.
+The CATS hash check became `--cats-sha256`. It was a hardcoded constant in the
+PowerShell script; it is now supplied by the caller and still refuses to run
+on mismatch.
 
-The suite now asserts a hash of `Image.tobytes()`. The previous Windows file
-hashes are retained in the contracts as evidence, the Linux file hash is
-recorded alongside, and `corrected_behavior.json` carries an
-`atlas_golden_comparison` block explaining why. Approved before the change;
-the contracts were not silently rewritten to make Linux pass.
+`tests/unit/test_run_tests.py` asserts that every redirected path stays inside
+the work directory, that user site is disabled and `PYTHONPATH` dropped, and
+that a bad CATS hash refuses to run.
+
+Verified on both platforms. Windows: unit 24/24, all six source suites
+including foreground undo, three package suites, full CATS checkpoint. Linux:
+unit 24/24 with 4 Windows-only path tests skipped, all six source suites, plus
+a Linux build, validate, and package run.
 
 ## Next
 
-- **Workstream 2 is not finished.** The cross-platform Python test runner is
-  still missing. Linux was validated with throwaway scratchpad scripts that
-  are not committed, so there is currently no reproducible way to run the
-  suites on Linux. `subst` has no POSIX equivalent, so the three PowerShell
-  runners need replacing rather than translating. CI cannot cover Linux until
-  this exists.
-- The universal ZIP is now 14.2 MB because it carries both wheels. Blender
-  supports `--split-platforms` to emit one archive per platform at roughly
-  7 MB each. That changes the release artifact naming, so it is a decision for
-  the release workstream, not an assumption.
-- `undo_repeatability` still needs foreground Blender and self-skips in
-  background mode on both platforms.
+- Workstream 3: CATS download. The archive published at
+  `Alrauna/Cats-Blender-Plugin` (`v5.2.0-alpha.1`,
+  `cats-blender-plugin-5.2.0-alpha.1.zip`, 1,282,884 bytes) is a different
+  artifact from the locally pinned `Cats-Blender-Plugin-5.2.0-795d323.zip`
+  (1,304,732 bytes, `14EBB594...`). Re-pinning means re-baselining CATS
+  evidence against a build never tested here. Approved behaviour: verify the
+  hash but warn rather than fail, written so promoting it to a hard failure is
+  a one-line change.
+- Workstream 4: CI. Both platforms are now runnable, so the matrix can be real.
+  Runner temp paths are short, so the MAX_PATH defect class is still not
+  exercised; covering it needs a deliberately long work directory.
+- Workstream 5: release workflow and branch protection.
+- The universal ZIP is 14.2 MB because it carries both wheels.
+  `--split-platforms` would produce roughly 7 MB per platform but changes
+  release artifact naming. Decide during the release workstream.
 - Nothing is tagged at 3.1.0.
-- The CATS archive published at `Alrauna/Cats-Blender-Plugin` is a different
-  artifact from the one `tests/run_checkpoint_test.ps1` hash-pins. Re-pinning
-  is workstream 3.

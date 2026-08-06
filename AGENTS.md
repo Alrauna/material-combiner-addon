@@ -180,8 +180,8 @@ to make a failing change pass.
    synchronized when an authorized path change is unavoidable.
 5. Use Git-aware moves for approved renames or moves. Never delete or discard
    material without explicit approval.
-6. Keep tests isolated from the user's normal Blender profile. Use the supplied
-   PowerShell runners and an external temporary work directory.
+6. Keep tests isolated from the user's normal Blender profile. Use
+   `tests/run_tests.py` and an external temporary work directory.
 7. Review `git diff` and `git diff --check`, then rerun `git status --short`.
 8. Do not commit, push, publish, tag, or create a release unless explicitly
    requested.
@@ -196,20 +196,25 @@ runner parameters rather than assuming paths.
 
 Baseline non-Blender checks:
 
-```powershell
+```
 python -m unittest discover -s tests/unit -p "test_*.py"
 python tools/verify_dependency_wheel.py
 git diff --check
 ```
 
 For add-on code, registration, UI, dependency, atlas, or compatibility
-changes, use Blender 5.2 with the applicable scripts under `tests/`:
+changes, use Blender 5.2 with `tests/run_tests.py`, which runs on Windows and
+Linux:
 
-- `run_blender_tests.ps1` for source-tree public API, UI, lifecycle, preflight,
+- `source` mode for source-tree public API, UI, lifecycle, preflight,
   dependency, and atlas checks.
-- `run_package_test.ps1` for an installed extension package.
-- `run_checkpoint_test.ps1` for approved CATS integration, restart, and
-  uninstall checks.
+- `package` mode for an installed extension package.
+- `checkpoint` mode for approved CATS integration, restart, and uninstall
+  checks.
+
+The atlas undo and repeatability check needs `source --foreground`. In
+background mode it reports that it requires a foreground context instead of
+running, so a green background run does not cover it.
 
 Put test work directories outside tracked source, such as under the
 operating-system temporary directory. Put intentional release ZIPs in
