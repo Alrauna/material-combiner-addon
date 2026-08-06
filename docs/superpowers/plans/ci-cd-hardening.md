@@ -80,6 +80,11 @@ Original scope, for reference:
 
 ### 4. CI workflow
 
+**CI must fetch CATS with `--strict`.** Drift warns locally so developers are
+not blocked, but on a runner the archive is executed with a privileged token,
+and the pin is the only integrity control. Local runs stay lenient; CI does
+not.
+
 Port `scripts/ci.py` from the separator, keeping the three-resolver checksum
 consensus intact; change only the platform table, archive name, and release
 identity. Jobs: unit tests, source-tree Blender suites, `extension validate`

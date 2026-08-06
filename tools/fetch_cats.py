@@ -21,8 +21,8 @@ import argparse
 import hashlib
 import json
 import shutil
-import ssl
 import sys
+import tomllib
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -38,16 +38,9 @@ TIMEOUT_SECONDS = 120
 USER_AGENT = "material-combiner-addon-ci"
 
 
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def _get(url: str, accept: str) -> bytes:
@@ -56,10 +49,8 @@ def _get(url: str, accept: str) -> bytes:
     request = urllib.request.Request(
         url, headers={"Accept": accept, "User-Agent": USER_AGENT}
     )
-    context = ssl.create_default_context()
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
     with urllib.request.urlopen(
-        request, timeout=TIMEOUT_SECONDS, context=context
+        request, timeout=TIMEOUT_SECONDS
     ) as response:
         if response.status != 200:
             raise RuntimeError(f"HTTP {response.status} for {url}")
@@ -118,12 +109,13 @@ def extension_id_of(archive: Path) -> str | None:
         if not manifests:
             return None
         text = package.read(manifests[0]).decode("utf-8")
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("id"):
-            _, _, value = stripped.partition("=")
-            return value.strip().strip('"')
-    return None
+    # Parse properly rather than matching a line prefix: "idle" and
+    # "identifier" both start with "id", so a crafted manifest could satisfy
+    # the id check while declaring a different extension.
+    try:
+        return tomllib.loads(text).get("id")
+    except tomllib.TOMLDecodeError:
+        return None
 
 
 def fetch(
@@ -148,7 +140,9 @@ def fetch(
                 f"asset renamed: recorded {reference['asset_name']}, "
                 f"published {asset_name}"
             )
-        asset_path = output_dir / asset_name
+        # asset_name comes from the API response, so keep it to a bare
+        # filename rather than trusting it to be path-safe.
+        asset_path = output_dir / Path(asset_name).name
         asset_path.write_bytes(_get(url, "application/octet-stream"))
 
     asset_sha256 = sha256_file(asset_path)

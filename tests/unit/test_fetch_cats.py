@@ -66,6 +66,18 @@ class UnwrapTests(unittest.TestCase):
             "cats_blender_plugin", fetch_cats.extension_id_of(result)
         )
 
+    def test_decoy_key_cannot_spoof_the_extension_id(self):
+        """A key merely starting with "id" must not satisfy the id check."""
+        archive = self.tmp / "decoy.zip"
+        with zipfile.ZipFile(archive, "w") as package:
+            package.writestr(
+                "blender_manifest.toml",
+                'schema_version = "1.0.0"\n'
+                'idle = "cats_blender_plugin"\n'
+                'id = "something_else"\n',
+            )
+        self.assertEqual("something_else", fetch_cats.extension_id_of(archive))
+
     def test_unrelated_archive_is_rejected(self):
         junk = self.tmp / "junk.zip"
         with zipfile.ZipFile(junk, "w") as archive:

@@ -24,7 +24,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -85,11 +84,8 @@ def pad_to_long_path(work: Path) -> Path:
 
 
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 class Profile:
