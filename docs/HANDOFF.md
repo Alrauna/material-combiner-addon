@@ -45,15 +45,25 @@ a future hang fails in 20 minutes instead of 60, and results now upload on
 success as well as failure, because a green run otherwise cannot show whether
 the undo check ran or reported itself skipped.
 
+The second run passed on both platforms. The uploaded artifacts confirm what
+a green tick alone could not:
+
+- Linux `work-atlas` recorded a real `undo_repeatability` result, so xvfb
+  genuinely carried the foreground check rather than it skipping quietly.
+- Windows `work-atlas` recorded `requires foreground Blender context`, which
+  is the intended behaviour there.
+- The Windows long-path suite produced results under a padded directory, so
+  `subst` does work on a `windows-2025` runner.
+
 ## Next
 
-- **The revised workflow has not been observed yet.** Windows in particular
-  got no further than the atlas suite on the first run, so everything after
-  it on that platform — long-path, build, package suites, CATS checkpoint —
-  is still unproven there. Watch the next run.
-- Still unknown on Windows: whether `subst` works on the runner, and whether
-  the `_load_lock` long-path defect reproduces there, since it does not on a
-  machine with `LongPathsEnabled` set.
+- Workstream 5: release workflow and branch protection. The status check
+  names to require are `CI / Windows — Blender 5.2` and
+  `CI / Linux — Blender 5.2`.
+- Still unknown: whether the `_load_lock` long-path defect reproduces on the
+  Windows runner. The long-path suite passes there with the fix in place, but
+  nothing has shown it would fail without it, so treat that half as
+  uncovered. Only the `_inside` defect has a demonstrated regression.
 - Workstream 5: release workflow and branch protection. Protection must come
   last, because required status checks reference the job names this workflow
   introduces: `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
