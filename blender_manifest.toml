@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "shotariyas_material_combiner"
-version = "3.1.0-alpha.1"
+version = "3.1.0"
 name = "Shotariya's Material Combiner"
 tagline = "Advanced texture atlas generation system for optimized rendering"
 maintainer = "Alrauna <67886220+Alrauna@users.noreply.github.com>"
@@ -81,4 +81,7 @@ paths_exclude_pattern = [
   "material-combiner-addon_updater/",
   "BLENDER_5_0_COMPATIBILITY_ANALYSIS.md",
   "tests/",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "docs/",
 ]

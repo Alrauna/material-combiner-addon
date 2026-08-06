@@ -3,7 +3,7 @@
 This repository contains Shotariya's Material Combiner, a Blender extension
 for combining material textures into atlases to reduce draw calls.
 
-The current development target is the alpha release for Blender 5.2 LTS on
+The current development target is the 3.1.0 release for Blender 5.2 LTS on
 Windows x64. The extension bundles Pillow through Blender's extension wheel
 mechanism. Other Blender versions or platforms are not supported unless they
 are separately validated and the manifest, dependency metadata, tests, and
@@ -35,7 +35,7 @@ package root.
   and testing documentation.
 - `blender_manifest.toml`, `dependencies.lock.json`, and `pyproject.toml`:
   package, dependency, and development metadata.
-- `.github/`: GitHub issue and funding metadata.
+- `.github/`: GitHub issue metadata.
 - `.local-references/`: ignored, local-only external references.
 - `.packaged-releases/`: ignored, local-only release packages and build
   output.
@@ -45,6 +45,63 @@ package root.
 
 Do not introduce another source wrapper or move runtime files under `src/`
 unless a demonstrated Blender, import, packaging, or test failure requires it.
+
+## Development approach
+
+- Superpowers owns the development lifecycle. Use its phases in this order when
+  they apply: investigate, design, obtain design approval, write a test-first
+  plan, obtain plan approval, implement, review, verify, and commit.
+- Begin every defect or unexpected result with systematic debugging. Establish
+  a reproduction and root cause before proposing or editing production code.
+- Treat new or changed behavior—including UX, API, architecture, cache,
+  assignment, material resolution, and performance behavior—as design work.
+  Use brainstorming, present the design, and obtain user approval before
+  production edits.
+- Convert an approved design or other multi-step production request into a
+  written implementation plan with explicit files, RED/GREEN tests, validation,
+  preservation checks, and commit boundaries. Obtain user approval before
+  execution. A plan may be concise for a narrow change, but a small expected
+  diff is not a reason to omit it.
+- Design specs and implementation plans live in `docs/superpowers/specs/` and
+  `docs/superpowers/plans/` while the work is in flight, and are committed so
+  the approved wording is reviewable. Delete them from `main` once the milestone
+  they describe is complete and committed. Git history retains them, so a
+  completed milestone leaves its rationale recoverable without carrying
+  superseded documents in the working tree. Do not treat that deletion as
+  optional cleanup; it is the last step of the milestone.
+- Execute approved plans with `executing-plans` by default.
+  `subagent-driven-development` or parallel dispatch requires an explicit user
+  request and independent work that can be safely isolated.
+- Use test-driven development for every production behavior change: demonstrate
+  the generated or synthetic regression before the production edit, implement
+  the smallest fix, and run the applicable change gate. Track plan progress and
+  record any material deviation; stop for approval when findings change the
+  agreed behavior, scope, risk, or architecture.
+- Review material production changes for correctness before completion. Use
+  `requesting-code-review` for major or risky milestones and
+  `receiving-code-review` before acting on review feedback. Use
+  `verification-before-completion` before success claims or commits, and
+  `finishing-a-development-branch` only when integration is actually requested.
+- Ponytail governs scope inside every Superpowers phase. Use it during
+  investigation, design, planning, implementation, and review to prefer reuse,
+  Blender/Python-native behavior, minimal dependencies, minimal abstractions,
+  and the smallest correct diff. Ponytail may recommend deleting or deferring
+  work, but it may not skip investigation, design or plan approval, TDD,
+  review, verification, preservation checks, or required acceptance gates.
+- Read-only inspection, status reporting, and mechanical documentation
+  corrections that do not create or change product/process policy may proceed
+  without design, plan, or implementation artifacts. They still require
+  evidence for factual claims and `git diff --check` when files change.
+- Direct user instructions and repository safety invariants take precedence
+  over both toolsets. Do not create ceremony merely to demonstrate a skill, but
+  do not relabel required reasoning, approval, or verification as ceremony.
+  
+## Handoff maintenance
+
+Update `docs/HANDOFF.md` at the end of a turn that changes repository state or
+materially changes what the next turn must address. Pure read-only answers and
+status checks that leave the next action unchanged do not require a handoff
+edit. Remove or revise items that no longer require immediate attention.
 
 ## Protected and local-only material
 
@@ -65,7 +122,7 @@ unless a demonstrated Blender, import, packaging, or test failure requires it.
   change requires provenance, license, hash, ABI/platform, package, and
   runtime validation.
 - Do not edit `.git/`, rewrite history, delete files, or remove branches.
-- Do not change licensing, attribution, funding links, repository ownership
+- Do not change licensing, attribution, repository ownership
   metadata, or third-party notices without explicit approval.
 
 If the origin or publication rights of an artifact are uncertain, keep it
@@ -142,11 +199,9 @@ operating-system temporary directory. Put intentional release ZIPs in
 `.packaged-releases/`.
 
 Every Blender extension build must be written to `.packaged-releases/` and
-named `<id>-<version>-<git-short-hash>.zip`. Read `id` and `version` from
-`blender_manifest.toml`; obtain `git-short-hash` from the local repository with
-`git rev-parse --short HEAD`. Do not hardcode these values. If the worktree is
-dirty, report that the hash identifies the base commit and that the archive
-also contains uncommitted changes.
+named `<id>-<version>.zip`. Read `id` and `version` from
+`blender_manifest.toml`. Do not hardcode these values. If the worktree is
+dirty, report that the archive contains uncommitted changes.
 
 For packaging changes, validate both the source directory and built archive
 with Blender's extension validation command. Inspect the resulting ZIP to

@@ -5,13 +5,32 @@ the Material Combiner addon, including version, author credits, and links
 for reporting issues or supporting development.
 """
 
+import tomllib
+from pathlib import Path
+
 import bpy
 
+# _filesystem_path keeps the read working when the extension is installed past
+# the Windows MAX_PATH limit, where Blender's Python cannot open a plain path.
+from ..dependencies import _filesystem_path
 from ..icons import get_icon_id
 
-ADDON_VERSION = "3.0.0"
-DISCORD_URL = "https://discord.neoneko.xyz/"
-GITHUB_ISSUES_URL = "https://github.com/teamneoneko/material-combiner-addon/issues"
+MANIFEST_PATH = Path(__file__).resolve().parents[1] / "blender_manifest.toml"
+GITHUB_ISSUES_URL = "https://github.com/Alrauna/material-combiner-addon/issues"
+
+
+def _addon_version() -> str:
+    """Read the extension version from the packaged manifest."""
+    try:
+        manifest = tomllib.loads(
+            _filesystem_path(MANIFEST_PATH).read_text(encoding="utf-8")
+        )
+        return str(manifest["version"])
+    except Exception:
+        return ""
+
+
+ADDON_VERSION = _addon_version()
 
 
 class CreditsPanel(bpy.types.Panel):
@@ -51,7 +70,7 @@ class CreditsPanel(bpy.types.Panel):
         col.scale_y = 1.2
 
         col.label(
-            text="Material Combiner {}".format(ADDON_VERSION),
+            text="Material Combiner {}".format(ADDON_VERSION).strip(),
             icon_value=get_icon_id("smc"),
         )
 
@@ -72,12 +91,7 @@ class CreditsPanel(bpy.types.Panel):
         col.scale_y = 1.2
 
         col.label(text="Found an Issue?")
-        self._create_link_button(
-            col,
-            text="Contact on Discord (@shotariya)",
-            icon="discord",
-            url=DISCORD_URL,
-        )
+        # The Discord button is hidden until the new server is available.
         self._create_link_button(
             col,
             text="Report Bug on GitHub",

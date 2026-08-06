@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import subprocess
+import tomllib
 import traceback
 import urllib.request
 from pathlib import Path
@@ -43,13 +44,14 @@ subprocess.Popen = _blocked_process
 
 
 class RecordingLayout:
-    def __init__(self, calls=None):
+    def __init__(self, calls=None, operators=None):
         self.calls = [] if calls is None else calls
+        self.operators = [] if operators is None else operators
         self.scale_y = 1.0
 
     def _child(self, name, *args, **kwargs):
         self.calls.append((name, args, kwargs))
-        return RecordingLayout(self.calls)
+        return RecordingLayout(self.calls, self.operators)
 
     def box(self):
         return self._child("box")
@@ -65,7 +67,9 @@ class RecordingLayout:
 
     def operator(self, *args, **kwargs):
         self.calls.append(("operator", args, kwargs))
-        return SimpleNamespace(cats=False, link="")
+        result = SimpleNamespace(cats=False, link="")
+        self.operators.append(result)
+        return result
 
     def separator(self, *args, **kwargs):
         self.calls.append(("separator", args, kwargs))
@@ -121,6 +125,34 @@ def main() -> None:
         report["checks"]["dependency_draw_operator_ids"] = (
             dependency_operators
         )
+
+        credits_layout = RecordingLayout()
+        credits = package.ui.credits_panel.CreditsPanel
+        credits._draw_header_section(credits_layout)
+        credits._draw_contact_section(credits, credits_layout)
+        credits._draw_support_section(credits, credits_layout)
+        manifest = tomllib.loads(
+            (Path(package.__file__).parent / "blender_manifest.toml").read_text(
+                encoding="utf-8"
+            )
+        )
+        label_texts = [
+            args[0] if args else kwargs.get("text", "")
+            for name, args, kwargs in credits_layout.calls
+            if name == "label"
+        ]
+        version_labels = [
+            text
+            for text in label_texts
+            if str(text).startswith("Material Combiner")
+        ]
+        assert version_labels == [
+            "Material Combiner {}".format(manifest["version"])
+        ], version_labels
+        credits_links = [entry.link for entry in credits_layout.operators]
+        assert not [link for link in credits_links if "discord" in link.lower()]
+        report["checks"]["credits_version_label"] = version_labels[0]
+        report["checks"]["credits_links"] = credits_links
     except Exception as exc:
         report["errors"].append(
             {"error": repr(exc), "traceback": traceback.format_exc()}
