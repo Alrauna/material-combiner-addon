@@ -46,7 +46,16 @@ foreach ($directory in @(
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
 
-$excluded = @(".git", ".ruff_cache", "__pycache__", "build", "dist")
+$excluded = @(
+    ".git",
+    ".ruff_cache",
+    "__pycache__",
+    "build",
+    "dist",
+    ".codex-assessment",
+    ".local-references",
+    ".packaged-releases"
+)
 Get-ChildItem -LiteralPath $repo -Force | Where-Object {
     $_.Name -notin $excluded
 } | Copy-Item -Destination $extension -Recurse -Force
