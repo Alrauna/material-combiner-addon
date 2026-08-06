@@ -7,5 +7,17 @@
       "sha256": "7743d3330b127b497972c3ca2994e014f748d16cd03d59adbee428d9a60689b7",
       "correction": "Fractional placement bounds are rounded up instead of truncated."
     }
+  },
+  "dependency_path_trust": {
+    "extended_length_paths_are_trusted": {
+      "defect": "A healthy install reported dependency_conflict when the extension path was long enough that Blender reported PIL._imaging.__file__ in Windows extended-length form (\\\\?\\C:\\...), because the trust check compared it against a plain-form extension root.",
+      "correction": "dependencies._inside strips extended-length syntax from both operands before comparing.",
+      "regression_test": "tests/unit/test_dependencies_paths.py"
+    },
+    "lock_file_readable_beyond_max_path": {
+      "defect": "A healthy install reported wheel_missing when the extension path exceeded MAX_PATH, because _load_lock read dependencies.lock.json without extended-length syntax. Blender's embedded Python is not long-path aware, so the read failed and the lock appeared absent.",
+      "correction": "_load_lock reads the lock through _filesystem_path, as _wheel_integrity already did.",
+      "regression_evidence": "tests/blender/verify_atlas_workflows.py run with a work directory whose extension path exceeds 260 characters; not reproducible under a standalone long-path-aware python.exe."
+    }
   }
 }

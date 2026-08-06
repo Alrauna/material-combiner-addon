@@ -47,9 +47,19 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _plain_path(path: Path) -> Path:
+    """Drop Windows extended-length syntax so paths compare consistently."""
+    value = str(path)
+    if value.startswith("\\\\?\\UNC\\"):
+        return Path("\\\\" + value[8:])
+    if value.startswith("\\\\?\\"):
+        return Path(value[4:])
+    return path
+
+
 def _inside(path: Path, root: Path) -> bool:
-    path = path.resolve()
-    root = root.resolve()
+    path = _plain_path(path.resolve())
+    root = _plain_path(root.resolve())
     return path == root or root in path.parents
 
 
@@ -64,7 +74,9 @@ def _extension_root() -> Path:
 
 def _load_lock() -> tuple[dict[str, object] | None, str | None]:
     try:
-        lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        lock = json.loads(
+            _filesystem_path(LOCK_PATH).read_text(encoding="utf-8")
+        )
         return lock["dependencies"][0], None
     except Exception as exc:
         return None, repr(exc)
