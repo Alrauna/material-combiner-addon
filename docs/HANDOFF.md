@@ -54,5 +54,7 @@ be required deliberately.
   resolver implementation. Do not replace it with curl's DoH client.
 - Atlas goldens assert decoded pixel content, not PNG bytes, because Pillow
   links zlib-ng on Windows and stock zlib on Linux.
-- Delete `docs/superpowers/plans/ci-cd-hardening.md` once this milestone is
-  closed out; git history retains it.
+- The milestone plan that produced this work was deleted on completion, as
+  AGENTS.md requires. It is recoverable from git history if the reasoning
+  behind any of the above is ever needed:
+  `git log --diff-filter=D -- docs/superpowers/plans/ci-cd-hardening.md`
