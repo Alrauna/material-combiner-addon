@@ -149,6 +149,18 @@ def main() -> None:
         assert version_labels == [
             "Material Combiner {}".format(manifest["version"])
         ], version_labels
+        # Attribution: the original author and the current maintainer, with
+        # the maintainer taken from the manifest rather than hardcoded.
+        maintainer = manifest["maintainer"].split(" <")[0]
+        assert "Created by:" in label_texts, label_texts
+        assert "shotariya" in label_texts, label_texts
+        assert "Maintained by:" in label_texts, label_texts
+        assert maintainer in label_texts, label_texts
+        report["checks"]["credits_attribution"] = [
+            text
+            for text in label_texts
+            if text in ("Created by:", "shotariya", "Maintained by:", maintainer)
+        ]
         credits_links = [entry.link for entry in credits_layout.operators]
         assert not [link for link in credits_links if "discord" in link.lower()]
         report["checks"]["credits_version_label"] = version_labels[0]
