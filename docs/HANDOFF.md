@@ -3,8 +3,9 @@
 ## State
 
 The CI/CD and hardening milestone is complete. `master` carries the `addon/`
-layout, Linux x64 runtime support, `tests/run_tests.py`, `tools/fetch_cats.py`,
-and a validating CI workflow with a verified release job.
+layout, runtime support for Windows x64, Linux x64 and macOS arm64,
+`tests/run_tests.py`, `tools/fetch_cats.py`, and a three-platform CI workflow
+with a verified release job.
 
 Version 3.1.0 is in the manifest. **Nothing is tagged and no GitHub release
 exists yet.**
@@ -16,14 +17,15 @@ Run the CI workflow from the Actions tab with the `release` input set to
 
 The release job refuses to publish unless validation passed on the same
 commit, the manifest declares the requested version, and the tag and release
-do not already exist. It creates a draft, uploads three archives and
+do not already exist. It creates a draft, uploads four archives and
 `SHA256SUMS.txt`, downloads what the release actually stored, verifies every
 hash, and only then publishes. A draft that fails verification stays a draft.
 
 ## Branch protection
 
-`master` requires four status checks: `CI / Windows — Blender 5.2`,
-`CI / Linux — Blender 5.2`, `Analyze (python)`, and `Analyze (actions)`.
+`master` requires five status checks: `CI / Windows — Blender 5.2`,
+`CI / Linux — Blender 5.2`, `CI / macOS — Blender 5.2`, `Analyze (python)`,
+and `Analyze (actions)`.
 Admins are included, force pushes and deletions are refused, and no
 pull-request review is required, so a solo maintainer can still merge once the
 checks pass. Verified by demonstration: a direct push to `master` is rejected
@@ -49,8 +51,12 @@ hour of protection being applied.
   runner. The long-path suite passes there with the fix in place, but nothing
   has shown it would fail without it. Only the `_inside` defect has a
   demonstrated regression.
-- The atlas undo and repeatability check runs on Linux only. A Windows runner
-  has no interactive desktop, so foreground Blender blocks there.
+- The atlas undo and repeatability check runs on Linux only. Neither a
+  Windows nor a macOS runner has a window server for foreground Blender, and
+  macOS has no xvfb equivalent.
+- macOS means Apple Silicon. Blender 5.2 publishes no macOS Intel build, so
+  there is nothing for an Intel Mac to run and no Intel wheel is packaged.
+  Blender does publish windows-arm64, which this package does not target.
 - CATS drift warns rather than fails for local runs. CI passes `--strict`.
   Flip `HASH_MISMATCH_IS_FATAL` in `tools/fetch_cats.py` once the CATS
   repository adopts matching release automation.
@@ -61,7 +67,13 @@ hour of protection being applied.
   independent resolution paths only mean something if they do not all share one
   resolver implementation. Do not replace it with curl's DoH client.
 - Atlas goldens assert decoded pixel content, not PNG bytes, because Pillow
-  links zlib-ng on Windows and stock zlib on Linux.
+  links zlib-ng on Windows and macOS but stock zlib on Linux. Adding macOS
+  required no new golden, which is the clearest evidence that asserting
+  pixels rather than file bytes was correct.
+- `SPLIT_PLATFORMS` in `tools/ci.py` must match the manifest's platform list.
+  `prepare_release` refuses a release directory containing anything it did
+  not expect, so a platform added to one and not the other fails the release.
+  A test now enforces the agreement.
 - The milestone plan that produced this work was deleted on completion, as
   AGENTS.md requires. It is recoverable from git history if the reasoning
   behind any of the above is ever needed:

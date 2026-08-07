@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tomllib
@@ -58,12 +59,33 @@ def write_github_output(path: Path, **values: object) -> None:
             stream.write(f"{key}={value}\n")
 
 
-def _get(url: str, accept: str) -> bytes:
+def api_token() -> str | None:
+    """Return a GitHub token if CI supplied one.
+
+    Anonymous API access is limited to 60 requests an hour per IP, and hosted
+    runners share egress addresses, so an unauthenticated call fails
+    intermittently with a 403. Authenticated calls are counted per repository
+    instead.
+    """
+    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+        token = os.environ.get(name)
+        if token:
+            return token
+    return None
+
+
+def _get(url: str, accept: str, token: str | None = None) -> bytes:
     if not url.startswith("https://"):
         raise ValueError("HTTPS is required")
-    request = urllib.request.Request(
-        url, headers={"Accept": accept, "User-Agent": USER_AGENT}
-    )
+    headers = {"Accept": accept, "User-Agent": USER_AGENT}
+    if token:
+        # Only ever sent to the API host. Asset downloads redirect to a CDN,
+        # and urllib replays request headers across redirects, so attaching
+        # the token there would hand it to another host.
+        if not url.startswith("https://api.github.com/"):
+            raise ValueError("refusing to send a token off the API host")
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(
         request, timeout=TIMEOUT_SECONDS
     ) as response:
@@ -82,6 +104,7 @@ def resolve_latest(repository: str) -> tuple[str, str, str]:
         _get(
             API.format(repository=repository),
             "application/vnd.github+json",
+            token=api_token(),
         )
     )
     assets = [
