@@ -13,6 +13,14 @@ on:
           Must be X.Y.Z and match addon/blender_manifest.toml.
         required: false
         type: string
+      dry_run:
+        description: >-
+          Rehearse the release without publishing: build, validate, and
+          checksum everything, then upload the artifacts for inspection.
+          Creates no tag and no release.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -288,12 +296,15 @@ jobs:
 
   # Checks the requested version before anything is built, so a mismatch
   # fails in seconds rather than after a full validation run.
+  # This condition must match the release job's. The release job needs this
+  # one, and a skipped dependency skips the dependent, so a gate that refuses
+  # to run off master would silently skip every dry run from a branch.
   release_gate:
     name: Release input gate
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.release != '' &&
-      github.ref == 'refs/heads/master'
+      (inputs.dry_run || github.ref == 'refs/heads/master')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -311,12 +322,17 @@ jobs:
           --version "$RELEASE_VERSION"
           --manifest addon/blender_manifest.toml
 
+  # One job for both, deliberately. A dry run that took a separate path would
+  # rehearse something other than the real release and prove nothing about it,
+  # so the same steps run either way and only the publishing ones are skipped.
+  # Real publishes stay on master; a dry run may be exercised from any branch,
+  # which is how this job gets tested without cutting a release.
   release:
-    name: Publish verified release
+    name: Release (publish or dry run)
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.release != '' &&
-      github.ref == 'refs/heads/master'
+      (inputs.dry_run || github.ref == 'refs/heads/master')
     needs: [validate, release_gate]
     runs-on: windows-2025
     timeout-minutes: 45
@@ -408,7 +424,10 @@ jobs:
             exit 1
           fi
 
+      # Everything above this point runs identically for a dry run. Only the
+      # four steps below touch the repository, and each is skipped.
       - name: Create a draft release
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -419,6 +438,7 @@ jobs:
           --target "${{ github.sha }}"
 
       - name: Upload the archives and checksums
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -432,6 +452,7 @@ jobs:
       # Verify what the release actually stores, not what was uploaded. A
       # draft that fails this is never published.
       - name: Download and verify the stored archives
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -455,6 +476,7 @@ jobs:
           done
 
       - name: Publish the verified draft
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -462,3 +484,34 @@ jobs:
         run: >-
           gh release edit "$TAG" --repo "${{ github.repository }}"
           --draft=false
+
+      # A dry run produces the same archives a publish would; uploading them
+      # is what makes the rehearsal inspectable rather than merely green.
+      # actions/upload-artifact v4.6.2.
+      - name: Upload the rehearsed release for inspection
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dry-run-${{ steps.release.outputs.tag }}
+          path: |
+            ${{ runner.temp }}/release/*.zip
+            ${{ runner.temp }}/release/SHA256SUMS.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Summarise the dry run
+        if: ${{ inputs.dry_run }}
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release dry run: \`$TAG\`"
+            echo
+            echo "Nothing was published. No tag and no release were created."
+            echo
+            echo '```'
+            cat "${{ runner.temp }}/release/SHA256SUMS.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
