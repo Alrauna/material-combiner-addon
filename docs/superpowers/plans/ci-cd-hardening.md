@@ -128,7 +128,24 @@ Known CI gaps to state explicitly in the workflow rather than omit silently:
   `dependencies.py` is not exercised. Covering it needs the runner to force a
   deliberately long work directory.
 
-### 5. Release workflow and branch protection
+### 5. Release workflow and branch protection (in progress)
+
+Release lives in `ci.yml` rather than its own workflow, so the release job can
+`needs: [validate, release_gate]` and cannot publish a commit that failed
+validation.
+
+A release publishes three archives: the universal ZIP plus both
+`--split-platforms` builds, with a `SHA256SUMS.txt` covering all three.
+`prepare-release` refuses to proceed if an expected archive is missing or if
+an unexpected file is present, since anything extra would be uploaded without
+a checksum.
+
+Required status checks for branch protection are `CI / Windows — Blender 5.2`,
+`CI / Linux — Blender 5.2`, and `Analyze (python)`. There is no check named
+`CodeQL`: the default setup publishes its result under the analysis name, and
+requiring a context that never appears would block every merge.
+
+Original scope, for reference:
 
 Release: `workflow_dispatch` with a version input, manifest-match gate, clean
 re-fetch of the exact SHA, rebuild, refuse existing tag or release, draft,

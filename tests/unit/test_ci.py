@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import socket
 import struct
 import sys
@@ -238,6 +240,106 @@ class ResolverConfigurationTests(unittest.TestCase):
     def test_dns_over_tls_uses_the_dedicated_port(self):
         self.assertEqual(853, ci.QUAD9_DOT_PORT)
         self.assertEqual("dns.quad9.net", ci.QUAD9_DOT_HOST)
+
+
+MANIFEST_TOML = 'schema_version = "1.0.0"\nid = "smc"\nversion = "3.1.0"\n'
+
+
+class ReleaseIdentityTests(unittest.TestCase):
+    """The manifest is the authority for what may be released."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.manifest = self.tmp / "blender_manifest.toml"
+        self.manifest.write_text(MANIFEST_TOML, encoding="utf-8")
+
+    def test_returns_tag_and_every_archive_name(self):
+        tag, names = ci.release_identity("3.1.0", self.manifest)
+        self.assertEqual("v3.1.0", tag)
+        self.assertEqual(
+            [
+                "smc-3.1.0.zip",
+                "smc-3.1.0-windows_x64.zip",
+                "smc-3.1.0-linux_x64.zip",
+            ],
+            names,
+        )
+
+    def test_rejects_a_version_the_manifest_does_not_declare(self):
+        with self.assertRaises(ValueError):
+            ci.release_identity("9.9.9", self.manifest)
+
+    def test_rejects_non_release_versions(self):
+        for version in ("3.1.0-alpha.1", "3.1", "v3.1.0", "3.1.0.1", ""):
+            with self.subTest(version=version):
+                with self.assertRaises(ValueError):
+                    ci.release_identity(version, self.manifest)
+
+
+class PrepareReleaseTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.manifest = self.tmp / "blender_manifest.toml"
+        self.manifest.write_text(MANIFEST_TOML, encoding="utf-8")
+        self.release = self.tmp / "release"
+        self.release.mkdir()
+        self.checksums = self.release / "SHA256SUMS.txt"
+
+    def _write_all(self):
+        for name in ci.release_identity("3.1.0", self.manifest)[1]:
+            (self.release / name).write_bytes(name.encode())
+
+    def _prepare(self):
+        """Run prepare_release without its progress output reaching the log."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            return ci.prepare_release(
+                "3.1.0", self.manifest, self.release, self.checksums, None
+            )
+
+    def test_checksums_cover_every_archive(self):
+        self._write_all()
+        digests = self._prepare()
+        self.assertEqual(3, len(digests))
+        rows = self.checksums.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(3, len(rows))
+        for row in rows:
+            digest, name = row.split("  ")
+            self.assertRegex(digest, r"\A[0-9a-f]{64}\Z")
+            self.assertEqual(
+                digest, ci.sha256_file(self.release / name)
+            )
+
+    def test_missing_archive_fails(self):
+        self._write_all()
+        next(self.release.glob("*-linux_x64.zip")).unlink()
+        with self.assertRaises(ValueError):
+            self._prepare()
+
+    def test_unexpected_archive_fails(self):
+        """An extra file would otherwise be published without a checksum."""
+        self._write_all()
+        (self.release / "smuggled.zip").write_bytes(b"x")
+        with self.assertRaises(ValueError):
+            self._prepare()
+
+
+class VerifyFileTests(unittest.TestCase):
+    def setUp(self):
+        self.path = Path(tempfile.mkdtemp()) / "asset.zip"
+        self.path.write_bytes(b"payload")
+
+    def test_matching_hash_passes(self):
+        ci.require_file_sha256(self.path, ci.sha256_file(self.path))
+
+    def test_mismatched_hash_fails(self):
+        with self.assertRaises(ValueError):
+            ci.require_file_sha256(self.path, "0" * 64)
+
+    def test_malformed_expectation_fails(self):
+        for expected in ("", "abc", "Z" * 64, ci.sha256_file(self.path)[:-1]):
+            with self.subTest(expected=expected):
+                with self.assertRaises(ValueError):
+                    ci.require_file_sha256(self.path, expected)
 
 
 class PlatformTableTests(unittest.TestCase):
