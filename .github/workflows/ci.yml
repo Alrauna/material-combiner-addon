@@ -287,7 +287,7 @@ jobs:
       # actions/upload-artifact v4.6.2.
       - name: Upload suite results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: results-${{ matrix.label }}
           path: ${{ runner.temp }}/**/profile/results/**
@@ -490,7 +490,7 @@ jobs:
       # actions/upload-artifact v4.6.2.
       - name: Upload the rehearsed release for inspection
         if: ${{ inputs.dry_run }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dry-run-${{ steps.release.outputs.tag }}
           path: |
