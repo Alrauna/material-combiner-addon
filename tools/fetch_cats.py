@@ -28,7 +28,6 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-
 # One-line switch: set to True to make any hash or tag drift fail the run.
 HASH_MISMATCH_IS_FATAL = False
 

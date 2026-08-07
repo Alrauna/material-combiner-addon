@@ -7,7 +7,6 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "smc_run_tests", ROOT / "tests" / "run_tests.py"

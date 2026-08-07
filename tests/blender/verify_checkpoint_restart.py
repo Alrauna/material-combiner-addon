@@ -10,7 +10,6 @@ from pathlib import Path
 
 import bpy
 
-
 MC = "bl_ext.user_default.shotariyas_material_combiner"
 CATS = "bl_ext.user_default.cats_blender_plugin"
 RESULT = Path(os.environ["SMC_TEST_RESULT"])

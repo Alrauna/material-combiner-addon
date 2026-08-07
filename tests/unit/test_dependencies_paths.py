@@ -6,7 +6,6 @@ import types
 import unittest
 from pathlib import Path
 
-
 # dependencies.py imports bpy and uses a relative import, so load it through a
 # synthetic package with bpy stubbed out.
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))

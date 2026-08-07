@@ -12,7 +12,6 @@ from pathlib import Path
 
 import bpy
 
-
 MODULE = "bl_ext.user_default.shotariyas_material_combiner"
 RESULT = Path(os.environ["SMC_TEST_RESULT"])
 EXTENSIONS_ROOT = Path(os.environ["BLENDER_USER_EXTENSIONS"]).resolve()
@@ -75,8 +74,8 @@ def main() -> None:
         }
 
         import PIL
-        from PIL import Image, features
         import PIL._imaging as imaging
+        from PIL import Image, features
 
         paths = {
             "PIL": str(Path(PIL.__file__).resolve()),

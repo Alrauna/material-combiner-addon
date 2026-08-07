@@ -25,6 +25,40 @@ ignore = [
     "UP007", # non pep604 annotation union
     "UP032", # f-string
     "UP035", # deprecated import
+    # Same intent as UP006 and UP007 above. Ruff later split Optional
+    # handling into its own rule; this project keeps typing-module
+    # annotations, so the split rule is ignored for the same reason.
+    "UP045", # non pep604 optional
+    # Pillow is imported inside functions deliberately: it may be absent, and
+    # the add-on has to report that rather than fail to import. Tests also
+    # load modules dynamically on purpose.
+    "PLC0415", # import not at top of file
+    # "from PIL import Image as pillow_image" is deliberate naming.
+    "N813", # camelcase imported as lowercase
+    # A literal in an assertion is usually the point of the assertion.
+    "PLR2004", # magic value comparison
+    # Complexity limits here flag inherited design rather than defects.
+    # Worth revisiting only when the affected code is rewritten anyway.
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "PLR0917", # too many positional arguments
+    "PLW0108", # unnecessary lambda
+]
+
+[tool.ruff.lint.per-file-ignores]
+# addon/ is inherited runtime code and its import layout is left alone on
+# purpose. Several "unused" imports pull in modules for their side effects,
+# notably globs, which resolves dependency status at import time, and the
+# public API contract pins importable paths. Removing them would be a
+# behaviour change wearing the costume of a cleanup. Everything this project
+# wrote, under tests/ and tools/, is linted at full strength.
+"addon/**" = [
+    "F401", # imported but unused
+    "I001", # unsorted imports
+    "RUF063", # prefer inspect.get_annotations
+    "RUF100", # unused noqa
 ]
 
 [tool.ruff.lint.pydocstyle]

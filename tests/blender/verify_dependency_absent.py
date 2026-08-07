@@ -11,7 +11,6 @@ from pathlib import Path
 
 import bpy
 
-
 MODULE = "bl_ext.user_default.shotariyas_material_combiner"
 RESULT = Path(os.environ["SMC_TEST_RESULT"])
 NETWORK_ATTEMPTS: list[str] = []
