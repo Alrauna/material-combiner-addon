@@ -13,7 +13,6 @@ from types import SimpleNamespace
 
 import bpy
 
-
 MODULE = os.environ.get(
     "SMC_TEST_MODULE",
     "bl_ext.user_default.shotariyas_material_combiner",

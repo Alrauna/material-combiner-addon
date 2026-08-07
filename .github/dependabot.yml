@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # Actions are pinned by commit so a moved tag cannot change what runs. The
+  # cost of that is they never update on their own, including for security
+  # fixes, and nothing otherwise reports a stale pin. Dependabot opens a pull
+  # request when one moves, which then has to pass the same CI as any other
+  # change.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+
+# Deliberately no pip ecosystem. The bundled Pillow wheels are vendored under
+# addon/wheels/ and pinned by hash in dependencies.lock.json. Bumping them is
+# a reviewed change requiring provenance, licence, ABI, and runtime
+# validation, so an automated pull request is the wrong mechanism.

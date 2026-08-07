@@ -10,7 +10,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("smc_ci", ROOT / "tools" / "ci.py")
 ci = importlib.util.module_from_spec(SPEC)

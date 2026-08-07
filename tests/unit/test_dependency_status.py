@@ -6,7 +6,6 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-
 MODULE_PATH = (
     Path(__file__).resolve().parents[2] / "addon" / "dependency_status.py"
 )

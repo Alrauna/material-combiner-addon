@@ -10,9 +10,7 @@ import traceback
 import urllib.request
 from pathlib import Path
 
-import addon_utils
 import bpy
-
 
 MODULE = os.environ.get(
     "SMC_TEST_MODULE",

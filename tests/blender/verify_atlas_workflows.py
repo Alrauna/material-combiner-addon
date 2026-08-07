@@ -7,12 +7,11 @@ import os
 import socket
 import subprocess
 import traceback
-from types import SimpleNamespace
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
 import bpy
-
 
 MODULE = os.environ.get(
     "SMC_TEST_MODULE",

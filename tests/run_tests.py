@@ -26,7 +26,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
 # Target length for the installed extension directory in --long-path mode.
 #

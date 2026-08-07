@@ -17,6 +17,14 @@ on:
 permissions:
   contents: read
 
+# Supersede an in-flight run when a pull request is pushed again, so a rapid
+# series of pushes does not queue several three-platform matrices. Pushes to
+# master and release dispatches are never cancelled: interrupting a release
+# midway could leave a draft or a tag behind.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     name: CI / ${{ matrix.label }} — Blender 5.2
@@ -26,17 +34,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # "split" is the suffix Blender gives this platform's archive when
+          # building with --split-platforms.
           - runner: windows-2025
             label: Windows
             platform: windows
+            split: windows_x64
           - runner: ubuntu-24.04
             label: Linux
             platform: linux
+            split: linux_x64
           # Apple Silicon. Blender 5.2 ships no macOS Intel build, so there
           # is no x64 counterpart to test.
           - runner: macos-15
             label: macOS
             platform: macos
+            split: macos_arm64
     steps:
       # Actions are pinned by commit, not tag, so a moved tag cannot change
       # what runs. actions/checkout v7.0.1.
@@ -59,6 +72,17 @@ jobs:
           --platform '${{ matrix.platform }}'
           --output-dir '${{ runner.temp }}/blender'
           --github-output "$GITHUB_OUTPUT"
+
+      # Linting is platform independent, so it runs once rather than three
+      # times. The version is pinned: an unpinned linter turns a new release
+      # of ruff into a red build on an unrelated pull request.
+      - name: Lint
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet --disable-pip-version-check ruff==0.16.1
+          python -m ruff check .
 
       - name: Run unit tests
         shell: bash
@@ -135,22 +159,39 @@ jobs:
           source --script tests/blender/verify_atlas_workflows.py
           --result r.json --long-path
 
+      # Both shapes a release publishes: the universal archive and this
+      # platform's split archive. They are built into separate directories so
+      # each can be identified without globbing an ambiguous set.
       - name: Build the extension
         id: build
         shell: bash
+        env:
+          BLENDER: ${{ steps.blender.outputs.blender }}
         run: |
           set -euo pipefail
-          mkdir -p "${{ runner.temp }}/release"
-          "${{ steps.blender.outputs.blender }}" --factory-startup \
-            --command extension build --source-dir addon \
-            --output-dir "${{ runner.temp }}/release"
+          mkdir -p "${{ runner.temp }}/release" "${{ runner.temp }}/release-split"
+          "$BLENDER" --factory-startup --command extension build \
+            --source-dir addon --output-dir "${{ runner.temp }}/release"
+          "$BLENDER" --factory-startup --command extension build \
+            --source-dir addon --output-dir "${{ runner.temp }}/release-split" \
+            --split-platforms
           archive=$(ls "${{ runner.temp }}"/release/*.zip)
+          split=$(ls "${{ runner.temp }}"/release-split/*-${{ matrix.split }}.zip)
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          echo "built $archive"
+          echo "split=$split" >> "$GITHUB_OUTPUT"
+          echo "universal: $archive"
+          echo "split:     $split"
 
-      - name: Validate the built package
+      - name: Validate both built packages
         shell: bash
-        run: '"${{ steps.blender.outputs.blender }}" --factory-startup --command extension validate "${{ steps.build.outputs.archive }}"'
+        env:
+          BLENDER: ${{ steps.blender.outputs.blender }}
+          ARCHIVE: ${{ steps.build.outputs.archive }}
+          SPLIT: ${{ steps.build.outputs.split }}
+        run: |
+          set -euo pipefail
+          "$BLENDER" --factory-startup --command extension validate "$ARCHIVE"
+          "$BLENDER" --factory-startup --command extension validate "$SPLIT"
 
       - name: Run installed-package suites
         shell: bash
@@ -169,6 +210,30 @@ jobs:
           run_pkg dependency --script tests/blender/verify_packaged_dependency.py --result r.json
           run_pkg public-api --script tests/blender/verify_public_api.py          --result r.json
           run_pkg atlas      --script tests/blender/verify_atlas_workflows.py     --result r.json
+
+      # The split archive is what most users download, so install and run it
+      # rather than only validating that it parses. Without this the release
+      # would publish per-platform archives CI had never executed.
+      - name: Run suites against this platform's split archive
+        timeout-minutes: 20
+        shell: bash
+        env:
+          BLENDER: ${{ steps.blender.outputs.blender }}
+          SPLIT: ${{ steps.build.outputs.split }}
+        run: |
+          set -euo pipefail
+          run_split () {
+            local name="$1"; shift
+            echo "::group::split suite: $name"
+            python tests/run_tests.py \
+              --blender "$BLENDER" \
+              --work "${{ runner.temp }}/split-$name" \
+              --drive-letter P \
+              package --package "$SPLIT" "$@"
+            echo "::endgroup::"
+          }
+          run_split dependency --script tests/blender/verify_packaged_dependency.py --result r.json
+          run_split atlas      --script tests/blender/verify_atlas_workflows.py     --result r.json
 
       # --strict: locally, CATS drift only warns so developers are not blocked.
       # In CI the pin is the only control over which build gets executed, so

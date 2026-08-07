@@ -4,7 +4,6 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 PACKERS = (
     Path(__file__).resolve().parents[2] / "addon" / "utils" / "packers"
 )

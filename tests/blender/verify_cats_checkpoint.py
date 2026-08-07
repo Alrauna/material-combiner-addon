@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import addon_utils
 import importlib
 import importlib.util
 import json
@@ -8,8 +7,8 @@ import os
 import traceback
 from pathlib import Path
 
+import addon_utils
 import bpy
-
 
 MC = "bl_ext.user_default.shotariyas_material_combiner"
 CATS = "bl_ext.user_default.cats_blender_plugin"

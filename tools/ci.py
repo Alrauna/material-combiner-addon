@@ -27,7 +27,6 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
-
 BLENDER_VERSION = "5.2.0"
 BASE_URL = "https://download.blender.org/release/Blender5.2"
 CHECKSUM_URL = f"{BASE_URL}/blender-{BLENDER_VERSION}.sha256"
