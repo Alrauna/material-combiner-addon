@@ -19,18 +19,24 @@ MANIFEST_PATH = Path(__file__).resolve().parents[1] / "blender_manifest.toml"
 GITHUB_ISSUES_URL = "https://github.com/Alrauna/material-combiner-addon/issues"
 
 
-def _addon_version() -> str:
-    """Read the extension version from the packaged manifest."""
+def _manifest() -> dict:
+    """Read the packaged manifest, or an empty mapping if unreadable."""
     try:
-        manifest = tomllib.loads(
+        return tomllib.loads(
             _filesystem_path(MANIFEST_PATH).read_text(encoding="utf-8")
         )
-        return str(manifest["version"])
     except Exception:
-        return ""
+        return {}
 
 
-ADDON_VERSION = _addon_version()
+def _maintainer(manifest: dict) -> str:
+    """Return the maintainer name without the contact address."""
+    return str(manifest.get("maintainer", "")).split(" <")[0].strip()
+
+
+_MANIFEST = _manifest()
+ADDON_VERSION = str(_MANIFEST.get("version", ""))
+ADDON_MAINTAINER = _maintainer(_MANIFEST)
 
 
 class CreditsPanel(bpy.types.Panel):
@@ -79,6 +85,13 @@ class CreditsPanel(bpy.types.Panel):
         author_row.alignment = "LEFT"
         author_row.label(text="Created by:")
         author_row.label(text="shotariya", icon_value=get_icon_id("shot"))
+
+        if ADDON_MAINTAINER:
+            maintainer_row = box.row(align=True)
+            maintainer_row.scale_y = 1.2
+            maintainer_row.alignment = "LEFT"
+            maintainer_row.label(text="Maintained by:")
+            maintainer_row.label(text=ADDON_MAINTAINER)
 
     def _draw_contact_section(self, layout: bpy.types.UILayout) -> None:
         """Draw the contact section with issue reporting links.
