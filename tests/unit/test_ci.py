@@ -256,14 +256,13 @@ class ReleaseIdentityTests(unittest.TestCase):
     def test_returns_tag_and_every_archive_name(self):
         tag, names = ci.release_identity("3.1.0", self.manifest)
         self.assertEqual("v3.1.0", tag)
-        self.assertEqual(
-            [
-                "smc-3.1.0.zip",
-                "smc-3.1.0-windows_x64.zip",
-                "smc-3.1.0-linux_x64.zip",
-            ],
-            names,
-        )
+        # Derived from SPLIT_PLATFORMS so adding a platform does not need this
+        # list edited, only the platform table.
+        expected = ["smc-3.1.0.zip"] + [
+            f"smc-3.1.0-{platform}.zip" for platform in ci.SPLIT_PLATFORMS
+        ]
+        self.assertEqual(expected, names)
+        self.assertIn("smc-3.1.0-macos_arm64.zip", names)
 
     def test_rejects_a_version_the_manifest_does_not_declare(self):
         with self.assertRaises(ValueError):
@@ -299,9 +298,10 @@ class PrepareReleaseTests(unittest.TestCase):
     def test_checksums_cover_every_archive(self):
         self._write_all()
         digests = self._prepare()
-        self.assertEqual(3, len(digests))
+        expected_count = 1 + len(ci.SPLIT_PLATFORMS)
+        self.assertEqual(expected_count, len(digests))
         rows = self.checksums.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(3, len(rows))
+        self.assertEqual(expected_count, len(rows))
         for row in rows:
             digest, name = row.split("  ")
             self.assertRegex(digest, r"\A[0-9a-f]{64}\Z")
@@ -340,6 +340,43 @@ class VerifyFileTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 with self.assertRaises(ValueError):
                     ci.require_file_sha256(self.path, expected)
+
+
+class SplitPlatformAgreementTests(unittest.TestCase):
+    """A platform added to the manifest must also be expected at release.
+
+    prepare_release refuses a release directory containing anything it did
+    not expect, so adding a platform to the manifest without adding it here
+    fails the release rather than silently publishing an unchecksummed file.
+    """
+
+    def test_split_platforms_match_the_manifest(self):
+        import tomllib as _tomllib
+
+        manifest = _tomllib.loads(
+            (ROOT / "addon" / "blender_manifest.toml").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected = {name.replace("-", "_") for name in manifest["platforms"]}
+        self.assertEqual(expected, set(ci.SPLIT_PLATFORMS))
+
+
+class MacosExtractionTests(unittest.TestCase):
+    """macOS carries an app bundle in a disk image, not a named directory."""
+
+    def test_macos_entry_describes_the_bundle_layout(self):
+        entry = ci.PLATFORMS["macos"]
+        self.assertTrue(entry["filename"].endswith(".dmg"))
+        self.assertEqual("Blender.app", entry["root"])
+        self.assertEqual("Contents/MacOS/Blender", entry["executable"])
+        self.assertIn("Contents/Resources", entry["python_dir"])
+
+    def test_only_macos_uses_a_disk_image(self):
+        for name, entry in ci.PLATFORMS.items():
+            with self.subTest(platform=name):
+                is_dmg = entry["filename"].endswith(".dmg")
+                self.assertEqual(name == "macos", is_dmg)
 
 
 class PlatformTableTests(unittest.TestCase):
