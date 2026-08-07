@@ -20,11 +20,17 @@ from .dependency_status import (
 
 EXPECTED_VERSION = "12.3.0"
 EXPECTED_ABI = "cpython-313"
+# Keyed on (sys.platform, machine) rather than platform alone, because the
+# architecture decides the package on macOS. Listing pairs also keeps
+# unsupported combinations out by construction: Blender 5.2 ships a
+# windows-arm64 build and no macos-x64 build, and neither is packaged here.
 SUPPORTED_PLATFORMS = {
-    "win32": "windows-x64",
-    "linux": "linux-x64",
+    ("win32", "amd64"): "windows-x64",
+    ("win32", "x86_64"): "windows-x64",
+    ("linux", "x86_64"): "linux-x64",
+    ("linux", "amd64"): "linux-x64",
+    ("darwin", "arm64"): "macos-arm64",
 }
-SUPPORTED_ARCHITECTURES = {"amd64", "x86_64"}
 PACKAGE_ROOT = Path(__file__).resolve().parent
 LOCK_PATH = PACKAGE_ROOT / "dependencies.lock.json"
 _restart_required = False
@@ -75,12 +81,9 @@ def _extension_root() -> Path:
 
 def _current_platform() -> str | None:
     """Return this machine's package platform, or None if unsupported."""
-    platform_name = SUPPORTED_PLATFORMS.get(sys.platform)
-    if platform_name is None:
-        return None
-    if platform.machine().casefold() not in SUPPORTED_ARCHITECTURES:
-        return None
-    return platform_name
+    return SUPPORTED_PLATFORMS.get(
+        (sys.platform, platform.machine().casefold())
+    )
 
 
 def _load_lock() -> tuple[dict[str, object] | None, str | None]:

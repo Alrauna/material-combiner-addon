@@ -5,7 +5,7 @@ material-combiner-addon
 
 #### An add-on for Blender 5.2 LTS that helps reduce draw calls in game engines by combining textures without quality loss and avoiding issues with UV bounds larger than 0–1.
 
-> **⚠️ Blender 5.2 LTS on Windows x64 and Linux x64.** Other platform packages require native validation before they can be published.
+> **⚠️ Blender 5.2 LTS on Windows x64, Linux x64, and macOS Apple Silicon.** Other platform packages require native validation before they can be published.
 
 > **Note:** This add-on is actively maintained, with focus on Blender 5.x. Earlier Blender versions are not supported.
 

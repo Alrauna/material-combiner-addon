@@ -30,6 +30,16 @@ Linux x64:
 - License file SHA-256:
   `dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce`
 
+macOS arm64:
+
+- Wheel: `pillow-12.3.0-cp313-cp313-macosx_11_0_arm64.whl`
+- Wheel SHA-256:
+  `d69141514cc30b774ceea5e3ed3a6635c8d8a96edf664689b890f4089111fb35`
+- License file SHA-256:
+  `dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce`
+
+There is no macOS Intel wheel because Blender 5.2 ships no macOS Intel build.
+
 The two license files differ because each wheel bundles the notices of the
 native libraries built into it. Both are covered by the same MIT-CMU
 expression.
