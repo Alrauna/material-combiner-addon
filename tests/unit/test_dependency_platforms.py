@@ -35,6 +35,7 @@ class CurrentPlatformTests(unittest.TestCase):
             ("win32", "AMD64", "windows-x64"),
             ("win32", "x86_64", "windows-x64"),
             ("linux", "x86_64", "linux-x64"),
+            ("darwin", "arm64", "macos-arm64"),
         ]
         for platform_name, machine, expected in cases:
             with self.subTest(platform=platform_name, machine=machine):
@@ -47,7 +48,15 @@ class CurrentPlatformTests(unittest.TestCase):
                     )
 
     def test_unsupported_platform_and_architecture(self):
-        cases = [("darwin", "arm64"), ("linux", "aarch64"), ("win32", "arm64")]
+        # win32/arm64 and darwin/x86_64 are excluded deliberately: Blender 5.2
+        # ships a windows-arm64 build we do not package for, and ships no
+        # macOS Intel build at all.
+        cases = [
+            ("darwin", "x86_64"),
+            ("linux", "aarch64"),
+            ("win32", "arm64"),
+            ("freebsd", "x86_64"),
+        ]
         for platform_name, machine in cases:
             with self.subTest(platform=platform_name, machine=machine):
                 with mock.patch.object(sys, "platform", platform_name), \
@@ -62,6 +71,7 @@ class LockSelectionTests(unittest.TestCase):
         for platform_name, machine, expected in [
             ("win32", "AMD64", "windows-x64"),
             ("linux", "x86_64", "linux-x64"),
+            ("darwin", "arm64", "macos-arm64"),
         ]:
             with self.subTest(platform=expected):
                 with mock.patch.object(sys, "platform", platform_name), \
@@ -73,9 +83,10 @@ class LockSelectionTests(unittest.TestCase):
                 self.assertEqual(expected, dependency["platform"])
 
     def test_unsupported_platform_reports_no_dependency(self):
+        # Intel macOS: Blender 5.2 has no build for it, so no wheel ships.
         with mock.patch.object(sys, "platform", "darwin"), \
                 mock.patch.object(
-                    dependencies.platform, "machine", return_value="arm64"):
+                    dependencies.platform, "machine", return_value="x86_64"):
             dependency, error = dependencies._load_lock()
         self.assertIsNone(dependency)
         self.assertIn("No bundled dependency", error)

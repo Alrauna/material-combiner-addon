@@ -9,7 +9,8 @@
       "correction": "Fractional placement bounds are rounded up instead of truncated.",
       "file_sha256_by_platform": {
         "windows-x64": "7743d3330b127b497972c3ca2994e014f748d16cd03d59adbee428d9a60689b7",
-        "linux-x64": "764b4ca20d556c8ed27df246cd976df43039ac8380cfacdf2ec1f536a2526643"
+        "linux-x64": "764b4ca20d556c8ed27df246cd976df43039ac8380cfacdf2ec1f536a2526643",
+        "macos-arm64": "7743d3330b127b497972c3ca2994e014f748d16cd03d59adbee428d9a60689b7"
       }
     }
   },
@@ -20,7 +21,9 @@
       "dimensions_match_across_platforms": true,
       "decoded_pixels_match_across_platforms": true,
       "windows_zlib": "1.3.1.zlib-ng",
-      "linux_zlib": "1.3.1"
+      "linux_zlib": "1.3.1",
+      "macos_note": "macOS arm64 produces byte-identical PNGs to Windows, so its file hash is the Windows value rather than a third one. That is consistent with the Windows and macOS Pillow wheels bundling zlib-ng while the manylinux wheel bundles stock zlib, and it is why the asserted value is the pixel hash: adding a platform required no new golden.",
+      "macos_verified_on": "Apple M2, macOS 26.6.1, Blender 5.2.0 LTS"
     }
   },
   "dependency_path_trust": {
