@@ -7,12 +7,18 @@ layout, runtime support for Windows x64, Linux x64 and macOS arm64,
 `tests/run_tests.py`, `tools/fetch_cats.py`, and a three-platform CI workflow
 with a verified release job.
 
-Version 3.1.0 is in the manifest. **Nothing is tagged and no GitHub release
-exists yet.**
+**v3.1.0 is released.** It was published by the release workflow, which
+created the tag, uploaded four archives and `SHA256SUMS.txt`, re-downloaded
+them, verified every hash, and only then undrafted. The full publishing path
+is therefore proven, not theoretical.
 
-## Releasing 3.1.0
+## Releasing the next version
 
-Rehearse first. Run the CI workflow with `release` set to `3.1.0` and
+Bump `version` in `addon/blender_manifest.toml` first; the gate refuses a
+version the manifest does not declare, and the tag check refuses one that
+already exists.
+
+Then rehearse. Run the CI workflow with `release` set to the new version and
 `dry_run` ticked. That performs the entire release except the four steps that
 touch the repository: it fetches the exact commit, rebuilds, validates every
 archive, computes checksums, and confirms the tag is still free, then uploads
@@ -21,6 +27,11 @@ in the run summary. No tag, no release. A dry run may be started from any
 branch, so the release path can be exercised without cutting anything.
 
 Then run it again with `dry_run` unticked, on `master`, to publish.
+
+Both halves are verified: the dry run was exercised end to end on a scratch
+branch with a bumped version, producing all four archives and their checksums
+while creating no tag and no release, and the publishing half produced
+v3.1.0.
 
 Leaving `release` empty runs validation only.
 
@@ -53,10 +64,6 @@ hour of protection being applied.
 
 ## Known gaps
 
-- The publishing half of the release job has never executed, because running
-  it publishes a real release. Everything before it is covered by the dry run
-  above. What remains unexercised is creating the draft, uploading,
-  re-downloading, verifying the stored copies, and undrafting.
 - The `_load_lock` long-path defect is not proven to reproduce on a Windows
   runner. The long-path suite passes there with the fix in place, but nothing
   has shown it would fail without it. Only the `_inside` defect has a
