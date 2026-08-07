@@ -43,6 +43,21 @@ def sha256_file(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def write_github_output(path: Path, **values: object) -> None:
+    """Append step outputs, refusing any value that could inject a row.
+
+    The extension path is derived from a remote release asset name, so a
+    newline in it would let that name declare further outputs of its own.
+    """
+    for key, value in values.items():
+        text = str(value)
+        if "\n" in text or "\r" in text:
+            raise ValueError(f"GitHub output must be single-line: {key}")
+    with path.open("a", encoding="utf-8", newline="\n") as stream:
+        for key, value in values.items():
+            stream.write(f"{key}={value}\n")
+
+
 def _get(url: str, accept: str) -> bytes:
     if not url.startswith("https://"):
         raise ValueError("HTTPS is required")
@@ -54,6 +69,10 @@ def _get(url: str, accept: str) -> bytes:
     ) as response:
         if response.status != 200:
             raise RuntimeError(f"HTTP {response.status} for {url}")
+        # Release assets redirect to a CDN, so redirects must be followed.
+        # urllib would follow one to plain HTTP, so check where it landed.
+        if not response.url.startswith("https://"):
+            raise RuntimeError(f"redirected off HTTPS: {response.url}")
         return response.read()
 
 
@@ -203,12 +222,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Treat drift as a failure instead of a warning.",
     )
+    parser.add_argument(
+        "--github-output",
+        type=Path,
+        help="Append the unwrapped extension path for a later CI step.",
+    )
     arguments = parser.parse_args(argv)
 
     report, exit_code = fetch(
         arguments.output_dir, arguments.archive, arguments.strict
     )
     print(json.dumps(report, indent=2))
+    if arguments.github_output is not None and exit_code == 0:
+        write_github_output(
+            arguments.github_output,
+            extension=report["extension"],
+            extension_sha256=report["extension_sha256"],
+        )
     for message in report["drift"]:
         level = "error" if report["drift_is_fatal"] else "warning"
         print(f"{level}: CATS reference drift: {message}", file=sys.stderr)

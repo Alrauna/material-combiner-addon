@@ -2,59 +2,75 @@
 
 ## State
 
-`master` at `d1f00bd` has the `addon/` layout, Linux x64 runtime support, and
-`tests/run_tests.py`. Version 3.1.0 is in the manifest; nothing is tagged and
-no GitHub release exists.
+`master` at `89469d0` has the `addon/` layout, Linux x64 runtime support,
+`tests/run_tests.py`, and `tools/fetch_cats.py`. Version 3.1.0 is in the
+manifest; nothing is tagged and no GitHub release exists.
 
-Branch `feat/cats-fetch` is workstream 3. The milestone plan is in
+Branch `feat/ci-workflow` is workstream 4. The milestone plan is in
 `docs/superpowers/plans/ci-cd-hardening.md`.
 
 ## This turn
 
-`tools/fetch_cats.py` resolves the latest release of the repository recorded
-in `tools/cats_reference.json`, downloads the asset, unwraps it, and reports
-drift.
+`.github/workflows/ci.yml` and `tools/ci.py`. Windows and Linux matrix,
+`fail-fast: false`, `permissions: contents: read`, both actions pinned by
+commit and confirmed to be release tags (checkout v7.0.1, upload-artifact
+v4.6.2).
 
-The discrepancy flagged in earlier turns is resolved, and it was not a content
-difference. **The published release asset is a wrapper: a ZIP whose single
-entry is `cats_blender_plugin.zip`.** Blender installs the wrapper without
-error but no `cats_blender_plugin` module ever exists, so the checkpoint
-failed at `addon_enable` with "No module named". Unwrapped, the published
-build passes the full checkpoint, so no CATS behavioural evidence needed
-re-baselining.
+Blender is downloaded rather than trusted. The official checksum manifest is
+fetched over three independent resolvers, all three must return byte-identical
+content, and the agreed manifest must match a hash committed in `tools/ci.py`.
+Both committed hashes were verified against the published manifest.
 
-Drift policy, as approved: hash or tag drift is a warning and does not fail.
-`--strict`, or the `HASH_MISMATCH_IS_FATAL` constant, makes it blocking. An
-unexpected extension id always fails, because the checkpoint could not enable
-it anyway. `--archive` runs offline from a local copy, so
-`.local-references` still works.
+Three resolution paths, matching the separator: system DNS, Cloudflare over
+DoH through curl, and Quad9 over DNS-over-TLS spoken directly and handed to
+curl with `--resolve`.
 
-Verified: live fetch on Windows and Linux with no drift; the old locally
-pinned archive correctly reported as drift and still exiting 0, then exiting 1
-under `--strict`; and an end-to-end fetch feeding straight into a passing
-checkpoint. Unit 32/32 on Windows, 32/32 on Linux with 4 Windows-only path
-tests skipped.
+The hand-rolled DNS-over-TLS client is an intentional security decision and
+must not be replaced with curl's DoH client. Routing all three paths through
+one resolver implementation would defeat the point of having three. A revision
+did replace it, wrongly concluding Quad9 was unreachable after testing its DoH
+endpoint rather than DNS-over-TLS on port 853; the DoT path resolves fine. The
+parser now has unit tests covering its rejection paths.
+
+Both former CI gaps are covered: Linux installs xvfb so the foreground atlas
+undo check really runs, and Windows runs the long-path suite.
+
+### First CI run
+
+Linux passed end to end on the first attempt, including xvfb carrying the
+foreground atlas suite and the `--strict` CATS checkpoint.
+
+Windows hung. `--foreground` on a `windows-2025` runner blocks forever,
+because the runner has no interactive desktop for Blender's window; the job
+sat on the atlas suite for 25 minutes until it was cancelled. CI now runs the
+atlas suite in foreground on Linux and in background on Windows, so the undo
+and repeatability check is covered on Linux only. Step timeouts were added so
+a future hang fails in 20 minutes instead of 60, and results now upload on
+success as well as failure, because a green run otherwise cannot show whether
+the undo check ran or reported itself skipped.
+
+The second run passed on both platforms. The uploaded artifacts confirm what
+a green tick alone could not:
+
+- Linux `work-atlas` recorded a real `undo_repeatability` result, so xvfb
+  genuinely carried the foreground check rather than it skipping quietly.
+- Windows `work-atlas` recorded `requires foreground Blender context`, which
+  is the intended behaviour there.
+- The Windows long-path suite produced results under a padded directory, so
+  `subst` does work on a `windows-2025` runner.
 
 ## Next
 
-- Workstream 4: CI. Everything it depends on now exists. Port `scripts/ci.py`
-  from the separator repository, keeping the three-resolver checksum
-  consensus. Jobs: unit, source suites, `extension validate` on `addon/`,
-  build, package suites, and the CATS checkpoint via `tools/fetch_cats.py`.
+- Workstream 5: release workflow and branch protection. The status check
+  names to require are `CI / Windows — Blender 5.2` and
+  `CI / Linux — Blender 5.2`.
+- Still unknown: whether the `_load_lock` long-path defect reproduces on the
+  Windows runner. The long-path suite passes there with the fix in place, but
+  nothing has shown it would fail without it, so treat that half as
+  uncovered. Only the `_inside` defect has a demonstrated regression.
 - Workstream 5: release workflow and branch protection. Protection must come
-  last, because required status checks reference job names that do not exist
-  until CI is merged.
-- Both previously open CI gaps are closed in the runner. `source --long-path`
-  covers the extended-length path handling, proven by reverting `_plain_path`
-  and watching only the long-path run fail. `source --foreground` now uses
-  `xvfb-run` on display-less Linux and refuses to start if xvfb is missing,
-  so the undo check cannot silently skip.
-- Two residual limits, both stated in `tests/README.md`: the `_load_lock`
-  defect does not reproduce on a machine with `LongPathsEnabled` set, so a
-  green long-path run there does not cover it; and the xvfb wrapper itself
-  could not be executed locally because installing xvfb needs sudo. Its logic
-  is unit-tested and the no-display refusal is verified, but the first real
-  xvfb run will happen on CI.
+  last, because required status checks reference the job names this workflow
+  introduces: `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
 - The universal ZIP is 14.2 MB because it carries both wheels.
   `--split-platforms` would give roughly 7 MB per platform but changes release
   artifact naming. Decide during the release workstream.

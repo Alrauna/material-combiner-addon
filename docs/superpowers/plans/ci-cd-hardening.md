@@ -78,12 +78,42 @@ Original scope, for reference:
   CATS behavioral evidence regenerated against the published build.
 - Keep the local `.local-references` path working for offline runs.
 
-### 4. CI workflow
+### 4. CI workflow (complete)
 
-**CI must fetch CATS with `--strict`.** Drift warns locally so developers are
-not blocked, but on a runner the archive is executed with a privileged token,
-and the pin is the only integrity control. Local runs stay lenient; CI does
-not.
+`.github/workflows/ci.yml` plus `tools/ci.py`. Windows and Linux matrix,
+`fail-fast: false`, `permissions: contents: read`, actions pinned by commit.
+
+Blender is downloaded and verified: the official checksum manifest is fetched
+over three independent resolvers, all three must be byte-identical, and the
+result must match a hash committed in `tools/ci.py`.
+
+CI fetches CATS with `--strict`. Drift warns locally so developers are not
+blocked, but CI must not silently validate against a different CATS build
+than the one pinned, and the pin is the only integrity control on an archive
+whose code is executed during the checkpoint.
+
+An earlier draft of this justified `--strict` by saying the archive runs with
+a privileged token. That was wrong. The repository's default workflow
+permission is `read` and the CI job pins `contents: read`, so the token is
+not privileged. `--strict` is about reproducibility and knowing what was
+actually tested, not about protecting a powerful credential. It matters more
+once the release workflow exists, since that job does hold `contents: write`.
+
+Both former gaps are covered: Linux installs xvfb so the foreground atlas
+undo check really runs, and Windows runs the long-path suite.
+
+The three resolution paths match the separator: system DNS, Cloudflare over
+DoH through curl, and Quad9 over DNS-over-TLS spoken directly and handed to
+curl with `--resolve`.
+
+The hand-rolled DNS-over-TLS client is deliberate and must stay. Using curl's
+DoH client for all three would make every path depend on one resolver
+implementation, so a defect or compromise there could affect all of them at
+once. Speaking DNS-over-TLS directly keeps the third path independent. An
+earlier revision replaced it with curl DoH against Google, on the mistaken
+basis that Quad9 was unreachable; what had actually been tested was Quad9's
+DoH endpoint, which is a different service from DNS-over-TLS on port 853.
+The DoT path resolves correctly. Do not simplify this away again.
 
 Port `scripts/ci.py` from the separator, keeping the three-resolver checksum
 consensus intact; change only the platform table, archive name, and release
