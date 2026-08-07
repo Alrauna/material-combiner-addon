@@ -32,6 +32,11 @@ jobs:
           - runner: ubuntu-24.04
             label: Linux
             platform: linux
+          # Apple Silicon. Blender 5.2 ships no macOS Intel build, so there
+          # is no x64 counterpart to test.
+          - runner: macos-15
+            label: macOS
+            platform: macos
     steps:
       # Actions are pinned by commit, not tag, so a moved tag cannot change
       # what runs. actions/checkout v7.0.1.
@@ -103,8 +108,10 @@ jobs:
           source --script tests/blender/verify_atlas_workflows.py
           --result r.json --foreground
 
+      # macOS has no xvfb, and a runner has no window server to attach to, so
+      # foreground is not available here either.
       - name: Run the atlas suite (background)
-        if: matrix.platform == 'windows'
+        if: matrix.platform != 'linux'
         timeout-minutes: 20
         shell: bash
         run: >-

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import ipaddress
+import plistlib
 import re
 import secrets
 import shutil
@@ -49,14 +50,24 @@ MAX_RESOLVED_ADDRESSES = 16
 # never disagree with the manifest about what was published.
 VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
-# Blender names split archives after the platform, not the wheel tag.
-SPLIT_PLATFORMS = ("windows_x64", "linux_x64")
+# Blender names split archives after the platform, not the wheel tag. This
+# must stay in step with the manifest's platforms list: prepare_release
+# refuses a release directory holding anything it did not expect, so a
+# platform added to the manifest and not added here fails the release.
+SPLIT_PLATFORMS = ("windows_x64", "linux_x64", "macos_arm64")
 
 CONNECT_TIMEOUT_SECONDS = 30
 TOTAL_TIMEOUT_SECONDS = 900
 PROCESS_TIMEOUT_SECONDS = 960
 RETRIES = 2
 
+# Blender's series directory, which holds the bundled Python.
+SERIES = BLENDER_VERSION.rsplit(".", 1)[0]
+
+# "root" is the directory the archive unpacks into, and executable and
+# python_dir are relative to it. macOS is spelled out rather than derived
+# because a .dmg carries an application bundle, not a directory named after
+# the archive.
 PLATFORMS = {
     "windows": {
         "filename": f"blender-{BLENDER_VERSION}-windows-x64.zip",
@@ -64,7 +75,9 @@ PLATFORMS = {
             "2d184b626c001692c362291911293b6a"
             "297179d618d95e9e9192c3a80318adc4"
         ),
+        "root": f"blender-{BLENDER_VERSION}-windows-x64",
         "executable": "blender.exe",
+        "python_dir": f"{SERIES}/python/bin",
         "python_glob": "python.exe",
     },
     "linux": {
@@ -73,7 +86,20 @@ PLATFORMS = {
             "96f6c181a30f4950607839dc84d42a35"
             "4b250d8a0231b098b59b7bc69c351c48"
         ),
+        "root": f"blender-{BLENDER_VERSION}-linux-x64",
         "executable": "blender",
+        "python_dir": f"{SERIES}/python/bin",
+        "python_glob": "python3.*",
+    },
+    "macos": {
+        "filename": f"blender-{BLENDER_VERSION}-macos-arm64.dmg",
+        "sha256": (
+            "ed4d8390166dec5ea0a2813a03db6221"
+            "f206ce016442be7f59f41d760972568a"
+        ),
+        "root": "Blender.app",
+        "executable": "Contents/MacOS/Blender",
+        "python_dir": f"Contents/Resources/{SERIES}/python/bin",
         "python_glob": "python3.*",
     },
 }
@@ -341,16 +367,67 @@ def download(
         )
 
 
-def bundled_python(blender: Path, glob: str) -> Path:
+def extract_dmg(archive: Path, destination: Path, root: str) -> None:
+    """Copy an application bundle out of a disk image.
+
+    hdiutil is asked for plist output and parsed with plistlib, rather than
+    scraping its human-readable columns, because the mount point is the one
+    value that must not be guessed wrong: everything after this reads from it,
+    and a stale mount would be left attached.
+    """
+    attached = subprocess.run(
+        ["hdiutil", "attach", "-nobrowse", "-readonly", "-plist", str(archive)],
+        check=True,
+        capture_output=True,
+    )
+    entities = plistlib.loads(attached.stdout)["system-entities"]
+    mount_points = [
+        entity["mount-point"]
+        for entity in entities
+        if entity.get("mount-point")
+    ]
+    if len(mount_points) != 1:
+        raise ValueError(f"expected one mount point, got {mount_points}")
+    mount = Path(mount_points[0])
+    try:
+        source = mount / root
+        if not source.is_dir():
+            raise ValueError(f"{root} not found in the disk image")
+        # symlinks=True: an .app bundle contains internal symlinks, and
+        # resolving them would both bloat the copy and break the framework
+        # layout Blender expects.
+        shutil.copytree(source, destination / root, symlinks=True)
+    finally:
+        subprocess.run(
+            ["hdiutil", "detach", str(mount), "-quiet"], check=False
+        )
+
+
+def extract(platform: str, archive: Path, destination: Path) -> None:
+    metadata = PLATFORMS[platform]
+    if platform == "macos":
+        extract_dmg(archive, destination, metadata["root"])
+    elif platform == "linux":
+        # filter="data" refuses absolute paths, parent traversal, and links
+        # pointing outside the destination.
+        shutil.unpack_archive(archive, destination, filter="data")
+    else:
+        shutil.unpack_archive(archive, destination)
+
+
+def bundled_python(root: Path, platform: str) -> Path:
+    metadata = PLATFORMS[platform]
     candidates = [
         path
-        for path in blender.parent.joinpath(
-            BLENDER_VERSION.rsplit(".", 1)[0], "python", "bin"
-        ).glob(glob)
+        for path in (root / metadata["python_dir"]).glob(
+            metadata["python_glob"]
+        )
         if path.is_file() and "config" not in path.name
     ]
     if not candidates:
-        raise ValueError("bundled Python executable was not found")
+        raise ValueError(
+            f"bundled Python not found under {root / metadata['python_dir']}"
+        )
     return min(candidates, key=lambda path: len(path.name)).resolve()
 
 
@@ -382,15 +459,10 @@ def prepare_blender(
         )
 
     extracted = output_dir / "blender"
-    if platform == "linux":
-        shutil.unpack_archive(archive, extracted, filter="data")
-    else:
-        shutil.unpack_archive(archive, extracted)
+    extract(platform, archive, extracted)
 
-    root = metadata["filename"]
-    for suffix in (".tar.xz", ".zip"):
-        root = root.removesuffix(suffix)
-    blender = (extracted / root / metadata["executable"]).resolve()
+    root = extracted / metadata["root"]
+    blender = (root / metadata["executable"]).resolve()
     if not blender.is_file():
         raise ValueError(f"expected Blender executable at {blender}")
 
@@ -403,7 +475,7 @@ def prepare_blender(
     if reported != f"Blender {BLENDER_VERSION} LTS":
         raise ValueError(f"unexpected Blender version: {reported!r}")
 
-    python = bundled_python(blender, metadata["python_glob"])
+    python = bundled_python(root, platform)
     if github_output is not None:
         write_github_output(github_output, blender=blender, python=python)
     print(f"blender: {blender}")
