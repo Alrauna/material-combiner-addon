@@ -296,12 +296,15 @@ jobs:
 
   # Checks the requested version before anything is built, so a mismatch
   # fails in seconds rather than after a full validation run.
+  # This condition must match the release job's. The release job needs this
+  # one, and a skipped dependency skips the dependent, so a gate that refuses
+  # to run off master would silently skip every dry run from a branch.
   release_gate:
     name: Release input gate
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.release != '' &&
-      github.ref == 'refs/heads/master'
+      (inputs.dry_run || github.ref == 'refs/heads/master')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
