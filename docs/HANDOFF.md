@@ -22,15 +22,23 @@ hash, and only then publishes. A draft that fails verification stays a draft.
 
 ## Branch protection
 
-`master` requires three status checks: `CI / Windows — Blender 5.2`,
-`CI / Linux — Blender 5.2`, and `Analyze (python)`. Admins are included, force
-pushes and deletions are refused, and no pull-request review is required, so a
-solo maintainer can still merge once the checks pass.
+`master` requires four status checks: `CI / Windows — Blender 5.2`,
+`CI / Linux — Blender 5.2`, `Analyze (python)`, and `Analyze (actions)`.
+Admins are included, force pushes and deletions are refused, and no
+pull-request review is required, so a solo maintainer can still merge once the
+checks pass. Verified by demonstration: a direct push to `master` is rejected
+with `GH006`.
 
-There is no check named `CodeQL`. CodeQL default setup reports under the
-analysis name, and requiring a context that never appears would block every
-merge. Adding a second analysed language would add a second check that has to
-be required deliberately.
+Do not require a context named `CodeQL`. Default setup reports per language
+under the analysis name, and `CodeQL` appears only in the pull-request rollup,
+not as a check run on branch commits, so requiring it would block every merge.
+
+CodeQL default setup currently analyses `actions` and `python`. The `actions`
+language was enabled automatically when the workflow files were added, which
+is also why `Analyze (actions)` is required: it is what scans the workflows
+for injection. **Each new analysed language adds a check that must be added to
+the required list deliberately**, and this already happened once within an
+hour of protection being applied.
 
 ## Known gaps
 
