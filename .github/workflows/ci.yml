@@ -6,6 +6,13 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+    inputs:
+      release:
+        description: >-
+          Publish a release. Leave empty to only run validation.
+          Must be X.Y.Z and match addon/blender_manifest.toml.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -198,3 +205,180 @@ jobs:
           path: ${{ runner.temp }}/**/profile/results/**
           retention-days: 7
           if-no-files-found: ignore
+
+  # Checks the requested version before anything is built, so a mismatch
+  # fails in seconds rather than after a full validation run.
+  release_gate:
+    name: Release input gate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release != '' &&
+      github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Require the manifest to declare this version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.release }}
+        run: >-
+          python tools/ci.py check-release
+          --version "$RELEASE_VERSION"
+          --manifest addon/blender_manifest.toml
+
+  release:
+    name: Publish verified release
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release != '' &&
+      github.ref == 'refs/heads/master'
+    needs: [validate, release_gate]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.release }}
+    steps:
+      # Fetch the exact commit with no credentials, rather than checking out
+      # with a token, so the release is built from public source and the
+      # build cannot quietly use a different tree.
+      - name: Fetch the exact public source
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: https://github.com/${{ github.repository }}.git
+          SOURCE_SHA: ${{ github.sha }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "$SOURCE_REPOSITORY"
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$SOURCE_SHA" ]; then
+            echo "checked out $actual, expected $SOURCE_SHA" >&2
+            exit 1
+          fi
+
+      - name: Verify and extract Blender 5.2.0
+        id: blender
+        shell: bash
+        run: >-
+          python tools/ci.py prepare-blender
+          --platform windows
+          --output-dir '${{ runner.temp }}/blender'
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Build the release archives
+        shell: bash
+        env:
+          BLENDER: ${{ steps.blender.outputs.blender }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/release"
+          "$BLENDER" --factory-startup --command extension build \
+            --source-dir addon --output-dir "${{ runner.temp }}/release"
+          "$BLENDER" --factory-startup --command extension build \
+            --source-dir addon --output-dir "${{ runner.temp }}/release" \
+            --split-platforms
+
+      - name: Validate every archive
+        shell: bash
+        env:
+          BLENDER: ${{ steps.blender.outputs.blender }}
+        run: |
+          set -euo pipefail
+          for archive in "${{ runner.temp }}"/release/*.zip; do
+            echo "::group::validate $(basename "$archive")"
+            "$BLENDER" --factory-startup --command extension validate "$archive"
+            echo "::endgroup::"
+          done
+
+      - name: Compute the release identity and checksums
+        id: release
+        shell: bash
+        run: >-
+          python tools/ci.py prepare-release
+          --version "$RELEASE_VERSION"
+          --manifest addon/blender_manifest.toml
+          --release-dir '${{ runner.temp }}/release'
+          --checksum-output '${{ runner.temp }}/release/SHA256SUMS.txt'
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Refuse an existing tag or release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag already exists: $TAG" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "release already exists: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Create a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: >-
+          gh release create "$TAG" --repo "${{ github.repository }}"
+          --draft --generate-notes --title "$TAG"
+          --target "${{ github.sha }}"
+
+      - name: Upload the archives and checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "${{ github.repository }}" \
+            "${{ runner.temp }}"/release/*.zip \
+            "${{ runner.temp }}/release/SHA256SUMS.txt"
+
+      # Verify what the release actually stores, not what was uploaded. A
+      # draft that fails this is never published.
+      - name: Download and verify the stored archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVES: ${{ steps.release.outputs.archives }}
+        run: |
+          set -euo pipefail
+          stored="${{ runner.temp }}/stored"
+          mkdir -p "$stored"
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern '*.zip' --dir "$stored"
+          for name in $ARCHIVES; do
+            expected=$(awk -v n="$name" '$2 == n {print $1}' \
+              "${{ runner.temp }}/release/SHA256SUMS.txt")
+            if [ -z "$expected" ]; then
+              echo "no checksum recorded for $name" >&2
+              exit 1
+            fi
+            python tools/ci.py verify-file \
+              --file "$stored/$name" --expected-sha256 "$expected"
+          done
+
+      - name: Publish the verified draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: >-
+          gh release edit "$TAG" --repo "${{ github.repository }}"
+          --draft=false

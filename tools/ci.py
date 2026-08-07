@@ -15,12 +15,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import ipaddress
+import re
 import secrets
 import shutil
 import socket
 import ssl
 import struct
 import subprocess
+import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -42,6 +44,13 @@ CLOUDFLARE_DOH_URL = "https://cloudflare-dns.com/dns-query"
 QUAD9_DOT_HOST = "dns.quad9.net"
 QUAD9_DOT_PORT = 853
 MAX_RESOLVED_ADDRESSES = 16
+
+# A release is X.Y.Z only. Prerelease suffixes are rejected so a tag can
+# never disagree with the manifest about what was published.
+VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+# Blender names split archives after the platform, not the wheel tag.
+SPLIT_PLATFORMS = ("windows_x64", "linux_x64")
 
 CONNECT_TIMEOUT_SECONDS = 30
 TOTAL_TIMEOUT_SECONDS = 900
@@ -402,13 +411,108 @@ def prepare_blender(
     return blender, python
 
 
+def release_identity(version: str, manifest: Path) -> tuple[str, list[str]]:
+    """Return the tag and the exact archive names a release must publish.
+
+    The manifest is the authority for both the version and the extension id,
+    so a release cannot be cut for a version the package does not declare.
+    """
+    if not VERSION_PATTERN.fullmatch(version):
+        raise ValueError(f"release version must use X.Y.Z: {version!r}")
+    parsed = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    if parsed["version"] != version:
+        raise ValueError(
+            f"manifest version {parsed['version']!r} does not match "
+            f"requested {version!r}"
+        )
+    extension_id = parsed["id"]
+    names = [f"{extension_id}-{version}.zip"]
+    names += [
+        f"{extension_id}-{version}-{platform}.zip"
+        for platform in SPLIT_PLATFORMS
+    ]
+    return f"v{version}", names
+
+
+def write_sha256s(paths: list[Path], output: Path) -> dict[str, str]:
+    digests = {path.name: sha256_file(path) for path in paths}
+    output.write_text(
+        "".join(f"{digest}  {name}\n" for name, digest in digests.items()),
+        encoding="utf-8",
+        newline="\n",
+    )
+    return digests
+
+
+def require_file_sha256(path: Path, expected_sha256: str) -> None:
+    if not SHA256_PATTERN.fullmatch(expected_sha256):
+        raise ValueError(f"malformed expected SHA-256: {expected_sha256!r}")
+    actual = sha256_file(path)
+    if actual != expected_sha256:
+        raise ValueError(
+            f"{path.name} SHA-256 mismatch: expected {expected_sha256}, "
+            f"got {actual}"
+        )
+
+
+def prepare_release(
+    version: str,
+    manifest: Path,
+    release_dir: Path,
+    checksum_output: Path,
+    github_output: Path | None,
+) -> dict[str, str]:
+    tag, names = release_identity(version, manifest)
+    paths = []
+    for name in names:
+        path = release_dir / name
+        if not path.is_file():
+            raise ValueError(f"release archive is missing: {name}")
+        paths.append(path)
+    # Anything else in the directory would be published unverified.
+    unexpected = sorted(
+        item.name
+        for item in release_dir.iterdir()
+        if item.is_file()
+        and item.name not in names
+        and item != checksum_output
+    )
+    if unexpected:
+        raise ValueError(f"unexpected files in release directory: {unexpected}")
+
+    digests = write_sha256s(paths, checksum_output)
+    if github_output is not None:
+        write_github_output(github_output, tag=tag, archives=" ".join(names))
+    print(f"tag: {tag}")
+    for name, digest in digests.items():
+        print(f"  {digest}  {name}")
+    return digests
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
     prepare = subparsers.add_parser("prepare-blender")
     prepare.add_argument("--platform", choices=tuple(PLATFORMS), required=True)
     prepare.add_argument("--output-dir", type=Path, required=True)
     prepare.add_argument("--github-output", type=Path)
+
+    check = subparsers.add_parser("check-release")
+    check.add_argument("--version", required=True)
+    check.add_argument("--manifest", type=Path, required=True)
+
+    release = subparsers.add_parser("prepare-release")
+    release.add_argument("--version", required=True)
+    release.add_argument("--manifest", type=Path, required=True)
+    release.add_argument("--release-dir", type=Path, required=True)
+    release.add_argument("--checksum-output", type=Path, required=True)
+    release.add_argument("--github-output", type=Path)
+
+    verify = subparsers.add_parser("verify-file")
+    verify.add_argument("--file", type=Path, required=True)
+    verify.add_argument("--expected-sha256", required=True)
+
     arguments = parser.parse_args(argv)
 
     if arguments.command == "prepare-blender":
@@ -417,6 +521,22 @@ def main(argv: list[str] | None = None) -> int:
             arguments.output_dir,
             arguments.github_output,
         )
+    elif arguments.command == "check-release":
+        tag, names = release_identity(arguments.version, arguments.manifest)
+        print(f"tag: {tag}")
+        for name in names:
+            print(f"  {name}")
+    elif arguments.command == "prepare-release":
+        prepare_release(
+            arguments.version,
+            arguments.manifest,
+            arguments.release_dir,
+            arguments.checksum_output,
+            arguments.github_output,
+        )
+    elif arguments.command == "verify-file":
+        require_file_sha256(arguments.file, arguments.expected_sha256)
+        print(f"verified: {arguments.file.name}")
     return 0
 
 
