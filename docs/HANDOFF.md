@@ -2,76 +2,67 @@
 
 ## State
 
-`master` at `89469d0` has the `addon/` layout, Linux x64 runtime support,
-`tests/run_tests.py`, and `tools/fetch_cats.py`. Version 3.1.0 is in the
-manifest; nothing is tagged and no GitHub release exists.
+The CI/CD and hardening milestone is complete. `master` carries the `addon/`
+layout, Linux x64 runtime support, `tests/run_tests.py`, `tools/fetch_cats.py`,
+and a validating CI workflow with a verified release job.
 
-Branch `feat/ci-workflow` is workstream 4. The milestone plan is in
-`docs/superpowers/plans/ci-cd-hardening.md`.
+Version 3.1.0 is in the manifest. **Nothing is tagged and no GitHub release
+exists yet.**
 
-## This turn
+## Releasing 3.1.0
 
-`.github/workflows/ci.yml` and `tools/ci.py`. Windows and Linux matrix,
-`fail-fast: false`, `permissions: contents: read`, both actions pinned by
-commit and confirmed to be release tags (checkout v7.0.1, upload-artifact
-v4.6.2).
+Run the CI workflow from the Actions tab with the `release` input set to
+`3.1.0`, on `master`. Leaving that input empty runs validation only.
 
-Blender is downloaded rather than trusted. The official checksum manifest is
-fetched over three independent resolvers, all three must return byte-identical
-content, and the agreed manifest must match a hash committed in `tools/ci.py`.
-Both committed hashes were verified against the published manifest.
+The release job refuses to publish unless validation passed on the same
+commit, the manifest declares the requested version, and the tag and release
+do not already exist. It creates a draft, uploads three archives and
+`SHA256SUMS.txt`, downloads what the release actually stored, verifies every
+hash, and only then publishes. A draft that fails verification stays a draft.
 
-Three resolution paths, matching the separator: system DNS, Cloudflare over
-DoH through curl, and Quad9 over DNS-over-TLS spoken directly and handed to
-curl with `--resolve`.
+## Branch protection
 
-The hand-rolled DNS-over-TLS client is an intentional security decision and
-must not be replaced with curl's DoH client. Routing all three paths through
-one resolver implementation would defeat the point of having three. A revision
-did replace it, wrongly concluding Quad9 was unreachable after testing its DoH
-endpoint rather than DNS-over-TLS on port 853; the DoT path resolves fine. The
-parser now has unit tests covering its rejection paths.
+`master` requires four status checks: `CI / Windows — Blender 5.2`,
+`CI / Linux — Blender 5.2`, `Analyze (python)`, and `Analyze (actions)`.
+Admins are included, force pushes and deletions are refused, and no
+pull-request review is required, so a solo maintainer can still merge once the
+checks pass. Verified by demonstration: a direct push to `master` is rejected
+with `GH006`.
 
-Both former CI gaps are covered: Linux installs xvfb so the foreground atlas
-undo check really runs, and Windows runs the long-path suite.
+Do not require a context named `CodeQL`. Default setup reports per language
+under the analysis name, and `CodeQL` appears only in the pull-request rollup,
+not as a check run on branch commits, so requiring it would block every merge.
 
-### First CI run
+CodeQL default setup currently analyses `actions` and `python`. The `actions`
+language was enabled automatically when the workflow files were added, which
+is also why `Analyze (actions)` is required: it is what scans the workflows
+for injection. **Each new analysed language adds a check that must be added to
+the required list deliberately**, and this already happened once within an
+hour of protection being applied.
 
-Linux passed end to end on the first attempt, including xvfb carrying the
-foreground atlas suite and the `--strict` CATS checkpoint.
+## Known gaps
 
-Windows hung. `--foreground` on a `windows-2025` runner blocks forever,
-because the runner has no interactive desktop for Blender's window; the job
-sat on the atlas suite for 25 minutes until it was cancelled. CI now runs the
-atlas suite in foreground on Linux and in background on Windows, so the undo
-and repeatability check is covered on Linux only. Step timeouts were added so
-a future hang fails in 20 minutes instead of 60, and results now upload on
-success as well as failure, because a green run otherwise cannot show whether
-the undo check ran or reported itself skipped.
+- The release job has never executed, because running it publishes a real
+  release. Every command it runs was exercised locally, and the gate, identity,
+  checksum, and verification logic have unit tests.
+- The `_load_lock` long-path defect is not proven to reproduce on a Windows
+  runner. The long-path suite passes there with the fix in place, but nothing
+  has shown it would fail without it. Only the `_inside` defect has a
+  demonstrated regression.
+- The atlas undo and repeatability check runs on Linux only. A Windows runner
+  has no interactive desktop, so foreground Blender blocks there.
+- CATS drift warns rather than fails for local runs. CI passes `--strict`.
+  Flip `HASH_MISMATCH_IS_FATAL` in `tools/fetch_cats.py` once the CATS
+  repository adopts matching release automation.
 
-The second run passed on both platforms. The uploaded artifacts confirm what
-a green tick alone could not:
+## Maintenance notes
 
-- Linux `work-atlas` recorded a real `undo_repeatability` result, so xvfb
-  genuinely carried the foreground check rather than it skipping quietly.
-- Windows `work-atlas` recorded `requires foreground Blender context`, which
-  is the intended behaviour there.
-- The Windows long-path suite produced results under a padded directory, so
-  `subst` does work on a `windows-2025` runner.
-
-## Next
-
-- Workstream 5: release workflow and branch protection. The status check
-  names to require are `CI / Windows — Blender 5.2` and
-  `CI / Linux — Blender 5.2`.
-- Still unknown: whether the `_load_lock` long-path defect reproduces on the
-  Windows runner. The long-path suite passes there with the fix in place, but
-  nothing has shown it would fail without it, so treat that half as
-  uncovered. Only the `_inside` defect has a demonstrated regression.
-- Workstream 5: release workflow and branch protection. Protection must come
-  last, because required status checks reference the job names this workflow
-  introduces: `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
-- The universal ZIP is 14.2 MB because it carries both wheels.
-  `--split-platforms` would give roughly 7 MB per platform but changes release
-  artifact naming. Decide during the release workstream.
-- Nothing is tagged at 3.1.0.
+- The hand-rolled DNS-over-TLS client in `tools/ci.py` is deliberate. Three
+  independent resolution paths only mean something if they do not all share one
+  resolver implementation. Do not replace it with curl's DoH client.
+- Atlas goldens assert decoded pixel content, not PNG bytes, because Pillow
+  links zlib-ng on Windows and stock zlib on Linux.
+- The milestone plan that produced this work was deleted on completion, as
+  AGENTS.md requires. It is recoverable from git history if the reasoning
+  behind any of the above is ever needed:
+  `git log --diff-filter=D -- docs/superpowers/plans/ci-cd-hardening.md`
