@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 from pathlib import Path
 
 
@@ -142,6 +144,39 @@ class GithubOutputTests(unittest.TestCase):
                 self.target, extension="/x/cats.zip\nextension_sha256=0"
             )
         self.assertEqual("", self.target.read_text(encoding="utf-8"))
+
+
+class ApiTokenTests(unittest.TestCase):
+    """The token authenticates the API call and must go nowhere else."""
+
+    def test_token_read_from_either_variable(self):
+        for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+            with self.subTest(variable=name):
+                with mock.patch.dict(os.environ, {name: "t0ken"}, clear=True):
+                    self.assertEqual("t0ken", fetch_cats.api_token())
+
+    def test_absent_token_is_none(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(fetch_cats.api_token())
+
+    def test_token_is_refused_for_non_api_hosts(self):
+        """Asset downloads redirect to a CDN; the token must not follow."""
+        for url in (
+            "https://objects.githubusercontent.com/x",
+            "https://github.com/owner/repo/releases/download/v1/a.zip",
+            "https://evil.example/api.github.com/x",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    fetch_cats._get(url, "application/octet-stream", "t0ken")
+
+    def test_asset_download_is_called_without_a_token(self):
+        """resolve_latest authenticates; the asset fetch does not."""
+        source = (ROOT / "tools" / "fetch_cats.py").read_text(encoding="utf-8")
+        self.assertIn('token=api_token()', source)
+        self.assertIn(
+            '_get(url, "application/octet-stream")', source
+        )
 
 
 class ReferenceFileTests(unittest.TestCase):

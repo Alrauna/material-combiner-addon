@@ -171,11 +171,19 @@ jobs:
           run_pkg atlas      --script tests/blender/verify_atlas_workflows.py     --result r.json
 
       # --strict: locally, CATS drift only warns so developers are not blocked.
-      # Here the archive is executed on a runner, and the pin is the only
-      # integrity control, so drift must stop the build.
+      # In CI the pin is the only control over which build gets executed, so
+      # drift must stop the build.
+      #
+      # GH_TOKEN authenticates the release lookup. Anonymous API access is 60
+      # requests an hour per IP and hosted runners share egress addresses, so
+      # without it the step fails intermittently with a 403. The token reaches
+      # api.github.com only; fetch_cats refuses to attach it to the asset
+      # download, which redirects to a CDN.
       - name: Fetch and verify CATS
         id: cats
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: >-
           python tools/fetch_cats.py
           --output-dir '${{ runner.temp }}/cats' --strict
