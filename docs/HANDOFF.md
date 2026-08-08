@@ -3,9 +3,11 @@
 ## Active security-hardening branch
 
 `codex/security-hardening` contains the approved design spec at
-`docs/superpowers/specs/2026-08-08-security-hardening-design.md`. Production
-implementation has not started. The next action is user review of the written
-spec, followed by a test-first implementation plan if the wording is approved.
+`docs/superpowers/specs/2026-08-08-security-hardening-design.md` and the
+test-first implementation plan at
+`docs/superpowers/plans/2026-08-08-security-hardening.md`. Production
+implementation has not started. The next action is user review and approval of
+the written implementation plan.
 
 The design preserves the hand-written Quad9 DNS-over-TLS resolver and records
 it as an intentional security invariant. It addresses fail-open local CATS
