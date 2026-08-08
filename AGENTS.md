@@ -21,6 +21,18 @@ Prepare changes for continued development and eventual GitHub publication.
 Favor conservative, reviewable changes and preserve existing behavior unless
 the task explicitly authorizes a change.
 
+## Security design invariants
+
+The checksum acquisition in `tools/ci.py` deliberately uses three independent
+resolver paths: the runner resolver, Cloudflare DNS-over-HTTPS through curl,
+and a hand-written Quad9 DNS-over-TLS client whose addresses are passed to curl
+with `--resolve`. All three checksum manifests must agree, and the selected
+checksum must match the committed SHA-256 pin. The separate resolver
+implementations, hand-written DNS parser, three-way consensus, and committed
+pin are intentional security controls, not cleanup debt. Do not consolidate or
+replace them unless the replacement preserves all four properties and their
+regression coverage.
+
 ## Intended repository layout
 
 `addon/` is the Blender extension package root and the only directory that

@@ -15,6 +15,12 @@ drift, bounded CATS downloads and ZIP members, and complete HTTPS validation
 for the existing browser operator. Compatibility-safe internal simplification
 is reserved for a second branch after this security branch merges.
 
+Completed on this branch so far:
+
+- `AGENTS.md` now protects the independent resolver implementations,
+  hand-written DNS parser, three-way checksum consensus, and committed hash
+  pin as intentional security controls.
+
 ## State
 
 The CI/CD and hardening milestone is complete. `master` carries the `addon/`
