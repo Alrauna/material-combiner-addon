@@ -124,6 +124,25 @@ materially changes what the next turn must address. Pure read-only answers and
 status checks that leave the next action unchanged do not require a handoff
 edit. Remove or revise items that no longer require immediate attention.
 
+## Testing and CI Requirements
+
+- Testing is part of implementation, not a separate cleanup task: before making changes, inspect the existing test suite, CI configuration, build/package configuration, public interfaces, primary workflows, integration points, and relevant existing coverage, and assume that changes may affect behavior outside the files or functions directly edited.
+- For every non-trivial change, apply all applicable validation layers: basic/static validation such as syntax, compilation, imports, manifests, packaging, configuration, and dependency resolution.
+- Maintain fast smoke tests proving the project remains fundamentally usable, including installation or initialization in a clean environment, import/loading, registration and unregistration where applicable, construction of important objects, presence of expected public modules/classes/operators/commands/identifiers/properties, execution of at least one minimal representative happy-path workflow, production of minimally valid output, clean shutdown, and preservation of critical compatibility or integration contracts.
+- Add targeted tests covering the changed behavior, relevant edge cases, and failure paths.
+- Add regression tests for reproducible defects whenever reasonably practical.
+- Add integration tests whenever behavior crosses components, dependencies, applications, plugins, file formats, or external tools.
+- When the possible blast radius is unclear, do not assume existing tests are sufficient: inspect callers, consumers, public contracts, integrations, and important invariants, compare behavior before and after the change where practical, run broader smoke/integration coverage, and add characterization tests for important existing behavior that lacks reliable documentation or coverage.
+- Tests should protect meaningful observable behavior and stable contracts rather than implementation details or arbitrary test-count targets, and must be deterministic, repeatable, isolated from user-specific machine state, non-destructive, reasonably fast, explicit about fixtures and prerequisites, and runnable unattended through documented commands.
+- During development, run the smallest relevant tests frequently, then all directly affected tests, the smoke suite, and broader integration or full-suite testing whenever the blast radius warrants it; do not claim success from code inspection alone, and record the validation commands performed and their results.
+- Any useful, stable, unattended test created locally must be evaluated for CI inclusion and normally integrated into CI rather than left as an undocumented local check.
+- CI should at minimum catch syntax/compile/import failures, installation or packaging failures, smoke-test failures, public API or compatibility-contract breakage where applicable, targeted regressions, and failures on supported runtimes or platforms where feasible.
+- Expensive tests may live in separate scheduled or manual jobs so that a small, fast “must never fail” smoke gate remains on normal changes.
+- Never weaken, delete, skip, or rewrite a failing test merely to make CI pass: first determine whether the implementation is wrong, the test is wrong, or expected behavior intentionally changed, preserve tests representing valid contracts, and update expectations only for deliberate and justified behavior changes.
+- Treat every discovered failure mode, invariant, compatibility requirement, regression, or newly learned way the project can break as reusable engineering knowledge: whenever such knowledge is discovered, explicitly ask whether it can be converted into a permanent automated test, and add that test when practical so the test suite and CI continuously accumulate institutional knowledge rather than requiring future agents or maintainers to rediscover the same risks.
+- A change is not complete until relevant automated tests and smoke tests pass, new behavior has appropriate coverage, fixed defects have regression coverage where practical, affected integration contracts have been checked, useful repeatable tests have been considered for CI, and no known validation failure is hidden or ignored.
+- When adequate automation is genuinely impractical, explicitly document what remains untested, why it could not be automated, and what manual validation was performed instead.
+
 ## Protected and local-only material
 
 - Keep `.local-references`, `.packaged-releases`, and `.codex-assessment`
@@ -264,3 +283,52 @@ Before any GitHub publication:
   was actually tested.
 - Treat claims about unvalidated platforms, Blender versions, or external
   integrations as uncertain and mark them "verify before changing."
+
+## Git policy
+
+Treat each topic branch as a bounded unit of work with one coherent objective. Do not continue onto materially different work merely because it is related, convenient, discovered during implementation, or part of the same conversation.
+
+Before beginning any non-trivial implementation task:
+
+- Inspect the current branch, its relationship to `main`, its existing commits, and the working tree.
+- Determine whether the requested work belongs to the current branch's established scope.
+- Check whether an existing local branch already has an appropriate scope for the work.
+- If the work belongs on an existing suitable branch, stop and switch to that branch before modifying files.
+- If no suitable branch exists, stop and create a new topic branch from an up-to-date `main` before modifying files.
+- If the current branch contains unfinished work that prevents a safe switch, preserve that work appropriately and explicitly report the situation rather than mixing the new task into the branch.
+- Do not interpret user momentum, conversational continuity, or phrases such as "also," "while you're here," or "next" as permission to expand the current branch's scope.
+
+A materially different objective requires a separate branch even when it touches the same files, component, feature area, or bug. Examples include moving from a bug fix to refactoring, adding an unrelated improvement discovered during testing, performing cleanup not necessary for the current acceptance criteria, beginning the next planned milestone, or addressing a separate review concern.
+
+When uncertain whether work belongs on the current branch, prefer stopping and separating it. Branches and pull requests should be small enough that their purpose can be described accurately in one concise sentence and reviewed independently.
+
+Start each new topic branch from an up-to-date `main` and land it through a pull request. `main` is protected and accepts no direct push.
+
+Base pull requests on `main`, not on another unmerged topic branch. Do not create stacked pull requests unless the user explicitly approves a stacked workflow. When new work genuinely depends on an unmerged branch, finish and merge the prerequisite branch first, update `main`, then create or rebase the dependent topic branch onto the updated `main` before opening its pull request.
+
+During implementation, commit each coherent, verified unit before beginning a materially different unit of work. Do not accumulate unrelated completed changes through a long coding session or conversation. Stage explicit paths, inspect the staged diff, and ensure every commit contains only the scope described by its commit message.
+
+Preserve unrelated user changes. Never discard, rewrite, stage, or commit unrelated modifications merely to obtain a clean working tree. Never commit ignored, private, credential-bearing, machine-local, reference-only, or generated outputs unless the repository explicitly requires them.
+
+Do not initialize another repository, change repository remotes, push branches, force-push, delete branches, merge pull requests, or otherwise publish or destructively alter Git state without the approval required by the surrounding instructions. Rewriting history is permitted only when rebasing or cleaning up a branch that has never been published; rewriting published history requires separate approval.
+
+### Branch completion and handoff
+
+Continuously distinguish between "more work could be done" and "the branch's intended work is complete." Do not use spare context, remaining ideas, newly discovered opportunities, or conversational momentum as reasons to extend a completed branch.
+
+Consider the branch complete when its stated objective and acceptance criteria are satisfied, appropriate tests and validation pass, required documentation for that scope is updated, and no known blocker remains that must be fixed before review.
+
+When the branch reaches that state:
+
+- Stop implementation rather than beginning the next task.
+- Review the complete branch diff and commit history for accidental scope expansion.
+- Run the appropriate final validation.
+- Update `docs/HANDOFF.md` with the branch's purpose, important decisions, completed work, validation performed, known limitations or follow-up work, and the recommended next action.
+- Explicitly separate follow-up ideas into future work rather than implementing them on the completed branch.
+- Present the branch as ready for review, commit/PR preparation, or whatever publication step the user has authorized.
+
+After `docs/HANDOFF.md` accurately captures the completed state, recommend ending the current chat and starting a new chat before beginning the next branch or substantial objective. The new chat should begin by reviewing `docs/HANDOFF.md`, the relevant repository state, and the new branch's intended scope. This handoff boundary is preferred once a branch is genuinely complete because carrying a finished implementation's full conversational history into unrelated work wastes context and increases the risk of scope drift.
+
+Do not recommend a new chat merely because the conversation is long. Recommend it when there is a natural work boundary: the current branch is complete, its state has been documented, and the next meaningful work should occur on another branch.
+
+If the user asks for additional implementation after a branch has reached this completion point, first classify the request against the completed branch's scope. If it is a distinct objective, do not modify files on the completed branch. Stop, explain that the existing branch should remain reviewable, and switch to an existing suitable branch or create a new topic branch from the appropriate updated base before continuing.
