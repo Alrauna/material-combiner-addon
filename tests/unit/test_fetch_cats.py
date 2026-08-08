@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -90,33 +92,32 @@ class UnwrapTests(unittest.TestCase):
 
 
 class DriftPolicyTests(unittest.TestCase):
-    """Drift warns by default and fails under --strict."""
+    """Drift fails by default and requires an explicit local override."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.archive = make_extension_zip(self.tmp / "cats.zip")
 
-    def test_hash_drift_warns_by_default(self):
+    def test_hash_drift_fails_by_default(self):
+        report, exit_code = fetch_cats.fetch(self.tmp / "o1", self.archive)
+        self.assertEqual(1, exit_code)
+        self.assertTrue(report["drift"])
+        self.assertTrue(report["drift_is_fatal"])
+
+    def test_hash_drift_requires_explicit_allowance(self):
         report, exit_code = fetch_cats.fetch(
-            self.tmp / "o1", self.archive, strict=False
+            self.tmp / "o2", self.archive, allow_drift=True
         )
         self.assertEqual(0, exit_code)
         self.assertTrue(report["drift"])
         self.assertFalse(report["drift_is_fatal"])
-
-    def test_hash_drift_fails_under_strict(self):
-        report, exit_code = fetch_cats.fetch(
-            self.tmp / "o2", self.archive, strict=True
-        )
-        self.assertEqual(1, exit_code)
-        self.assertTrue(report["drift_is_fatal"])
 
     def test_wrong_extension_id_always_fails(self):
         wrong = make_extension_zip(
             self.tmp / "wrong.zip", extension_id="something_else"
         )
         _, exit_code = fetch_cats.fetch(
-            self.tmp / "o3", wrong, strict=False
+            self.tmp / "o3", wrong, allow_drift=True
         )
         self.assertEqual(1, exit_code)
 
@@ -179,6 +180,10 @@ class ApiTokenTests(unittest.TestCase):
 
 
 class ReferenceFileTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.archive = make_extension_zip(self.tmp / "cats.zip")
+
     def test_reference_records_both_hashes_and_the_extension_id(self):
         for key in (
             "repository",
@@ -193,9 +198,34 @@ class ReferenceFileTests(unittest.TestCase):
         for key in ("asset_sha256", "extension_sha256"):
             self.assertRegex(REFERENCE[key], r"\A[0-9a-f]{64}\Z")
 
-    def test_default_policy_is_warn(self):
-        self.assertFalse(fetch_cats.HASH_MISMATCH_IS_FATAL)
+    def test_legacy_strict_flag_is_still_accepted(self):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                1,
+                fetch_cats.main(
+                    [
+                        "--output-dir",
+                        str(self.tmp / "strict"),
+                        "--archive",
+                        str(self.archive),
+                        "--strict",
+                    ]
+                ),
+            )
 
+    def test_conflicting_policy_flags_are_rejected(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                fetch_cats.main(
+                    [
+                        "--output-dir",
+                        str(self.tmp / "conflict"),
+                        "--archive",
+                        str(self.archive),
+                        "--strict",
+                        "--allow-drift",
+                    ]
+                )
 
 if __name__ == "__main__":
     unittest.main()

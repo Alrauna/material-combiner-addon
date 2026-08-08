@@ -4,14 +4,12 @@ The published release asset is a wrapper: a ZIP whose only entry is the
 installable extension ZIP. Blender cannot install the wrapper, so it is
 unwrapped here and the inner archive is what the runner consumes.
 
-Hash drift is reported but does not fail the run. The CATS repository has not
-yet adopted the same release automation as this one, so its artifacts are
-expected to move. Flip HASH_MISMATCH_IS_FATAL, or pass --strict, once the two
-repositories are aligned.
+Reference drift fails by default. Use --allow-drift only for deliberate local
+inspection of an unpinned CATS release.
 
 Examples:
     python tools/fetch_cats.py --output-dir build/cats
-    python tools/fetch_cats.py --output-dir build/cats --strict
+    python tools/fetch_cats.py --output-dir build/cats --allow-drift
     python tools/fetch_cats.py --output-dir build/cats --archive local.zip
 """
 
@@ -27,9 +25,6 @@ import tomllib
 import urllib.request
 import zipfile
 from pathlib import Path
-
-# One-line switch: set to True to make any hash or tag drift fail the run.
-HASH_MISMATCH_IS_FATAL = False
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_PATH = ROOT / "tools" / "cats_reference.json"
@@ -160,7 +155,9 @@ def extension_id_of(archive: Path) -> str | None:
 
 
 def fetch(
-    output_dir: Path, archive: Path | None, strict: bool
+    output_dir: Path,
+    archive: Path | None,
+    allow_drift: bool = False,
 ) -> tuple[dict[str, object], int]:
     reference = json.loads(REFERENCE_PATH.read_text(encoding="utf-8"))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -220,13 +217,13 @@ def fetch(
         "extension_sha256": extension_sha256,
         "extension_id": actual_id,
         "drift": drift,
-        "drift_is_fatal": bool(strict or HASH_MISMATCH_IS_FATAL),
+        "drift_is_fatal": not allow_drift,
     }
     # A wrong extension id always fails: the checkpoint cannot enable it, so
     # continuing would only produce a confusing downstream error.
     if fatal:
         return report, 1
-    if drift and (strict or HASH_MISMATCH_IS_FATAL):
+    if drift and not allow_drift:
         return report, 1
     return report, 0
 
@@ -239,10 +236,16 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Use a local archive instead of downloading, for offline runs.",
     )
-    parser.add_argument(
+    policy = parser.add_mutually_exclusive_group()
+    policy.add_argument(
         "--strict",
         action="store_true",
-        help="Treat drift as a failure instead of a warning.",
+        help="Require the pinned CATS reference (the default; retained for compatibility).",
+    )
+    policy.add_argument(
+        "--allow-drift",
+        action="store_true",
+        help="Allow an unpinned CATS release for deliberate local inspection.",
     )
     parser.add_argument(
         "--github-output",
@@ -252,7 +255,9 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     report, exit_code = fetch(
-        arguments.output_dir, arguments.archive, arguments.strict
+        arguments.output_dir,
+        arguments.archive,
+        allow_drift=arguments.allow_drift,
     )
     print(json.dumps(report, indent=2))
     if arguments.github_output is not None and exit_code == 0:
