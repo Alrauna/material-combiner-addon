@@ -160,22 +160,27 @@ class DriftPolicyTests(unittest.TestCase):
         self.assertEqual(1, exit_code)
 ```
 
-Replace `test_default_policy_is_warn` with source and CLI compatibility tests:
+Replace `test_default_policy_is_warn` with real CLI compatibility coverage.
+Give `ReferenceFileTests` this setup:
 
 ```python
-def test_source_has_no_hidden_policy_switch(self):
-    self.assertFalse(hasattr(fetch_cats, "HASH_MISMATCH_IS_FATAL"))
+def setUp(self):
+    self.tmp = Path(tempfile.mkdtemp())
+    self.archive = make_extension_zip(self.tmp / "cats.zip")
 
 def test_legacy_strict_flag_is_still_accepted(self):
-    report = {"drift": [], "drift_is_fatal": True}
-    with mock.patch.object(fetch_cats, "fetch", return_value=(report, 1)) as fetch:
-        self.assertEqual(
-            1,
-            fetch_cats.main(
-                ["--output-dir", str(self.tmp), "--strict"]
-            ),
-        )
-    fetch.assert_called_once_with(self.tmp, None, allow_drift=False)
+    self.assertEqual(
+        1,
+        fetch_cats.main(
+            [
+                "--output-dir",
+                str(self.tmp / "strict"),
+                "--archive",
+                str(self.archive),
+                "--strict",
+            ]
+        ),
+    )
 
 def test_conflicting_policy_flags_are_rejected(self):
     with self.assertRaises(SystemExit):
@@ -189,8 +194,6 @@ def test_conflicting_policy_flags_are_rejected(self):
         )
 ```
 
-Give `ReferenceFileTests` a `setUp` that creates `self.tmp` for the CLI test.
-
 - [ ] **Step 2: Run the focused tests and confirm RED**
 
 Run:
@@ -200,8 +203,7 @@ python -m unittest tests.unit.test_fetch_cats.DriftPolicyTests tests.unit.test_f
 ```
 
 Expected: failures show the current warn-by-default policy, absent
-`--allow-drift`, old `fetch(..., strict=...)` signature, and existing hidden
-constant.
+`--allow-drift`, and old `fetch(..., strict=...)` signature.
 
 - [ ] **Step 3: Implement the smallest fail-closed policy change**
 
