@@ -1,5 +1,58 @@
 # Handoff
 
+## Completed security-hardening branch
+
+`codex/security-hardening` is complete and ready for review/PR preparation.
+It preserves the hand-written Quad9 DNS-over-TLS parser as an intentional
+security control alongside the runner resolver, Cloudflare DNS-over-HTTPS,
+three-way checksum consensus, and the committed checksum pin. `AGENTS.md` now
+protects that design from compatibility-neutral cleanup.
+
+The branch also:
+
+- makes CATS tag, name, size, hash, extension ID, and extension version drift
+  fail closed by default while retaining `--strict` and adding the explicit
+  local-only `--allow-drift` escape hatch;
+- bounds CATS API responses, release downloads, and extracted inner archives,
+  streams downloads without forwarding the API token, and removes partial
+  output on failure;
+- requires the existing `smc.browser` operator to receive a complete HTTPS URL
+  without credentials, whitespace, control characters, a missing host, or an
+  invalid port; and
+- preserves extension API contracts, manifest and dependency metadata, CATS
+  integration identifiers, atlas behavior, packer behavior, updater
+  properties, and the CI resolver implementation.
+
+Validation on Windows with Blender 5.2.0 LTS:
+
+- 90 unit tests passed with 3 expected skips; repository-wide Ruff and
+  `git diff --check` passed.
+- All three bundled Pillow wheels passed hash, platform, metadata, license,
+  and manifest verification.
+- Seven isolated source suites passed: public API, UI/browser, atomic
+  lifecycle, preflight failures, dependency absence, atlas workflows, and
+  Windows long-path atlas workflows.
+- Blender validated the source and a newly built package. Inspection found 62
+  package entries, all three pinned wheels, all required runtime metadata, and
+  no tests, caches, local references, assessment output, logs, or bytecode.
+- Three installed-package suites passed: bundled dependency, public API, and
+  atlas workflows.
+- A live strict CATS fetch matched the pinned release tag, asset name, both
+  sizes, both SHA-256 hashes, extension ID, and extension version. The CATS
+  integration, restart, and uninstall checkpoint passed.
+- The complete branch received an inline correctness and overengineering
+  review with no accepted findings. Protected contracts, behavioral evidence,
+  manifest, dependency lock, packer, updater properties, and resolver code
+  have no diff.
+
+Windows cannot supply the foreground atlas undo/repeatability gate. Linux
+foreground coverage and the Windows/Linux/macOS CI matrix remain required
+before merge. No push or pull request has been performed.
+
+Recommended next action: review and publish this branch. After it merges,
+start a new chat and a separate branch for compatibility-safe simplification;
+do not mix that work into this completed security branch.
+
 ## State
 
 The CI/CD and hardening milestone is complete. `master` carries the `addon/`
@@ -74,9 +127,8 @@ hour of protection being applied.
 - macOS means Apple Silicon. Blender 5.2 publishes no macOS Intel build, so
   there is nothing for an Intel Mac to run and no Intel wheel is packaged.
   Blender does publish windows-arm64, which this package does not target.
-- CATS drift warns rather than fails for local runs. CI passes `--strict`.
-  Flip `HASH_MISMATCH_IS_FATAL` in `tools/fetch_cats.py` once the CATS
-  repository adopts matching release automation.
+- CATS drift now fails by default in CI and local runs. `--allow-drift` is only
+  for deliberate local inspection and must not be used by the checkpoint.
 
 ## Maintenance notes
 

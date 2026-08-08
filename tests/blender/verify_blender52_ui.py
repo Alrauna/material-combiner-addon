@@ -90,6 +90,34 @@ def main() -> None:
         assert bpy.ops.preferences.addon_enable(module=MODULE) == {"FINISHED"}
         enabled = True
 
+        browser = importlib.import_module(f"{MODULE}.operators.browser")
+        opened_urls: list[str] = []
+        browser.webbrowser.open = (
+            lambda url, **_kwargs: opened_urls.append(url) or True
+        )
+        good_url = "https://example.com:443/docs?q=atlas#install"
+        assert bpy.ops.smc.browser(link=good_url) == {"FINISHED"}
+        bad_urls = (
+            "http://example.com",
+            "https://trusted.example@evil.example/path",
+            "https://example.com whitespace",
+            "https://example.com\nfile:///tmp/x",
+            "https:///missing-host",
+            "https://example.com:not-a-port/path",
+        )
+        for bad_url in bad_urls:
+            try:
+                result = bpy.ops.smc.browser(link=bad_url)
+            except RuntimeError as exc:
+                assert "URL" in str(exc), (bad_url, exc)
+            else:
+                assert result == {"CANCELLED"}, (bad_url, result)
+        assert opened_urls == [good_url], opened_urls
+        report["checks"]["browser_https_validation"] = {
+            "opened": opened_urls,
+            "rejected": list(bad_urls),
+        }
+
         material = bpy.data.materials.new("SMC UI Preview Fallback")
         assert material.preview is None
         item = SimpleNamespace(mat=material)
