@@ -8,22 +8,19 @@ Usage example:
     bpy.ops.smc.browser(link=r"https://github.com/Alrauna/material-combiner-addon")
 """
 
-import re
 import webbrowser
 from typing import Set, Tuple
+from urllib.parse import urlsplit
 
 import bpy
 from bpy.props import StringProperty
-
-URL_PATTERN = r"^https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+"
-
 
 class OpenBrowser(bpy.types.Operator):
     """Opens a web browser with the specified URL.
 
     This operator validates the URL for correct formatting and security
     concerns before attempting to open it in the user's default web browser.
-    It provides error handling and security warnings for HTTP URLs.
+    It provides error handling and requires a complete HTTPS URL.
     """
 
     bl_idname = "smc.browser"
@@ -60,22 +57,30 @@ class OpenBrowser(bpy.types.Operator):
     def _validate_url(self) -> Tuple[bool, str]:
         """Validate the URL for correctness and security.
 
-        Checks that the URL is not empty, follows the correct format,
-        and warns if HTTP is used instead of HTTPS.
+        Checks that the URL is a complete HTTPS address without credentials,
+        whitespace, or control characters.
 
         Returns:
             Tuple containing (is_valid, error_message).
         """
         if not self.link:
             return False, "URL cannot be empty"
-
-        if not re.match(URL_PATTERN, self.link):
+        if any(
+            character.isspace() or ord(character) < 32
+            for character in self.link
+        ):
             return (
                 False,
-                "Invalid URL format. Must begin with http:// or https://",
+                "URL cannot contain whitespace or control characters",
             )
-
-        if self.link.startswith("http://"):
-            self.report({"WARNING"}, "Consider using HTTPS for better security")
+        try:
+            parsed = urlsplit(self.link)
+            _ = parsed.port
+        except ValueError:
+            return False, "Invalid HTTPS URL"
+        if parsed.scheme != "https" or not parsed.hostname:
+            return False, "URL must be a complete HTTPS address"
+        if parsed.username is not None or parsed.password is not None:
+            return False, "URL credentials are not allowed"
 
         return True, ""
