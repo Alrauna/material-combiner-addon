@@ -1,5 +1,18 @@
 # Handoff
 
+## Active security-hardening branch
+
+`codex/security-hardening` contains the approved design spec at
+`docs/superpowers/specs/2026-08-08-security-hardening-design.md`. Production
+implementation has not started. The next action is user review of the written
+spec, followed by a test-first implementation plan if the wording is approved.
+
+The design preserves the hand-written Quad9 DNS-over-TLS resolver and records
+it as an intentional security invariant. It addresses fail-open local CATS
+drift, bounded CATS downloads and ZIP members, and complete HTTPS validation
+for the existing browser operator. Compatibility-safe internal simplification
+is reserved for a second branch after this security branch merges.
+
 ## State
 
 The CI/CD and hardening milestone is complete. `master` carries the `addon/`
