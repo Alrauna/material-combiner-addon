@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -27,11 +28,33 @@ REFERENCE = json.loads(
 MANIFEST = 'schema_version = "1.0.0"\nid = "cats_blender_plugin"\n'
 
 
-def make_extension_zip(path: Path, extension_id: str = "cats_blender_plugin"):
+class FakeResponse:
+    def __init__(self, data: bytes, url: str = "https://example.test/file"):
+        self._stream = io.BytesIO(data)
+        self.status = 200
+        self.url = url
+
+    def read(self, size=-1):
+        return self._stream.read(size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def make_extension_zip(
+    path: Path,
+    extension_id: str = "cats_blender_plugin",
+    version: str = REFERENCE["extension_version"],
+):
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             "blender_manifest.toml",
-            f'schema_version = "1.0.0"\nid = "{extension_id}"\n',
+            'schema_version = "1.0.0"\n'
+            f'id = "{extension_id}"\n'
+            f'version = "{version}"\n',
         )
         archive.writestr("__init__.py", "")
     return path
@@ -90,6 +113,49 @@ class UnwrapTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             fetch_cats.unwrap(junk, "cats_blender_plugin.zip", out)
 
+    def test_inner_zip_member_over_limit_is_rejected(self):
+        inner = self.tmp / "inner.zip"
+        inner.write_bytes(b"x" * 17)
+        wrapper = make_wrapper_zip(self.tmp / "wrapper.zip", "cats.zip", inner)
+        out = self.tmp / "bounded"
+        out.mkdir()
+        with mock.patch.object(
+            fetch_cats, "EXTENSION_MAX_BYTES", 16, create=True
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "extension archive exceeds"
+            ):
+                fetch_cats.unwrap(wrapper, "cats.zip", out)
+
+
+class BoundedInputTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_api_response_over_limit_is_rejected(self):
+        response = FakeResponse(b"x" * (1 * 1024 * 1024 + 1))
+        with mock.patch.object(
+            fetch_cats.urllib.request, "urlopen", return_value=response
+        ):
+            with self.assertRaisesRegex(RuntimeError, "API response exceeds"):
+                fetch_cats._get(
+                    "https://api.github.com/x", "application/json"
+                )
+
+    def test_download_over_limit_removes_partial_file(self):
+        target = self.tmp / "asset.zip"
+        response = FakeResponse(b"x" * 17)
+        with mock.patch.object(
+            fetch_cats.urllib.request, "urlopen", return_value=response
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "release asset exceeds"
+            ):
+                fetch_cats._download(
+                    "https://example.test/asset.zip", target, maximum=16
+                )
+        self.assertFalse(target.exists())
+
 
 class DriftPolicyTests(unittest.TestCase):
     """Drift fails by default and requires an explicit local override."""
@@ -121,6 +187,122 @@ class DriftPolicyTests(unittest.TestCase):
         )
         self.assertEqual(1, exit_code)
 
+
+class IntegrityFactsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.inner = make_extension_zip(self.tmp / "cats_blender_plugin.zip")
+        self.wrapper = make_wrapper_zip(
+            self.tmp / "release.zip", self.inner.name, self.inner
+        )
+        self.reference = {
+            **REFERENCE,
+            "release_tag": "test-release",
+            "asset_name": self.wrapper.name,
+            "asset_sha256": hashlib.sha256(
+                self.wrapper.read_bytes()
+            ).hexdigest(),
+            "asset_size": self.wrapper.stat().st_size,
+            "extension_sha256": hashlib.sha256(
+                self.inner.read_bytes()
+            ).hexdigest(),
+            "extension_size": self.inner.stat().st_size,
+            "extension_version": REFERENCE["extension_version"],
+        }
+        self.reference_path = self.tmp / "reference.json"
+
+    def fetch_local(self, *, allow_drift=False, **changes):
+        reference = {**self.reference, **changes}
+        self.reference_path.write_text(json.dumps(reference), encoding="utf-8")
+        with mock.patch.object(
+            fetch_cats, "REFERENCE_PATH", self.reference_path
+        ):
+            return fetch_cats.fetch(
+                self.tmp / "local-output",
+                self.inner,
+                allow_drift=allow_drift,
+            )
+
+    def test_exact_extension_size_and_version_pass(self):
+        report, exit_code = self.fetch_local()
+        self.assertEqual(0, exit_code)
+        self.assertEqual(self.inner.stat().st_size, report["extension_size"])
+        self.assertEqual(
+            REFERENCE["extension_version"], report["extension_version"]
+        )
+
+    def test_extension_size_drift_fails_by_default(self):
+        report, exit_code = self.fetch_local(
+            extension_size=self.inner.stat().st_size + 1
+        )
+        self.assertEqual(1, exit_code)
+        self.assertTrue(
+            any("extension size changed" in item for item in report["drift"])
+        )
+
+    def test_extension_size_drift_requires_explicit_allowance(self):
+        report, exit_code = self.fetch_local(
+            allow_drift=True,
+            extension_size=self.inner.stat().st_size + 1,
+        )
+        self.assertEqual(0, exit_code)
+        self.assertFalse(report["drift_is_fatal"])
+
+    def test_extension_version_drift_fails_by_default(self):
+        report, exit_code = self.fetch_local(extension_version="0.0.0")
+        self.assertEqual(1, exit_code)
+        self.assertTrue(
+            any(
+                "extension version changed" in item
+                for item in report["drift"]
+            )
+        )
+
+    def test_published_and_downloaded_asset_sizes_are_verified(self):
+        asset = self.wrapper.read_bytes()
+        published_size = len(asset) + 1
+        reference = {**self.reference, "asset_size": published_size}
+        self.reference_path.write_text(json.dumps(reference), encoding="utf-8")
+        api_payload = json.dumps(
+            {
+                "tag_name": reference["release_tag"],
+                "assets": [
+                    {
+                        "name": reference["asset_name"],
+                        "browser_download_url": "https://cdn.example/release.zip",
+                        "size": published_size,
+                    }
+                ],
+            }
+        ).encode()
+        responses = iter(
+            (
+                FakeResponse(api_payload, "https://api.github.com/release"),
+                FakeResponse(asset, "https://cdn.example/release.zip"),
+            )
+        )
+        with mock.patch.object(
+            fetch_cats, "REFERENCE_PATH", self.reference_path
+        ):
+            with mock.patch.object(
+                fetch_cats.urllib.request,
+                "urlopen",
+                side_effect=lambda *_args, **_kwargs: next(responses),
+            ):
+                report, exit_code = fetch_cats.fetch(
+                    self.tmp / "remote-output", None
+                )
+
+        self.assertEqual(1, exit_code)
+        self.assertEqual(len(asset), report["asset_size"])
+        self.assertTrue(
+            any(
+                "downloaded asset size changed" in item
+                for item in report["drift"]
+            )
+        )
+        self.assertTrue(report["drift"])
+        self.assertTrue(report["drift_is_fatal"])
 
 class GithubOutputTests(unittest.TestCase):
     """The extension path derives from a remote asset name."""
@@ -170,13 +352,49 @@ class ApiTokenTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     fetch_cats._get(url, "application/octet-stream", "t0ken")
 
-    def test_asset_download_is_called_without_a_token(self):
-        """resolve_latest authenticates; the asset fetch does not."""
-        source = (ROOT / "tools" / "fetch_cats.py").read_text(encoding="utf-8")
-        self.assertIn('token=api_token()', source)
-        self.assertIn(
-            '_get(url, "application/octet-stream")', source
-        )
+    def test_asset_download_streams_without_forwarding_api_token(self):
+        """A large asset bypasses the API cap and never receives the token."""
+        tmp = Path(tempfile.mkdtemp())
+        inner = tmp / "cats_blender_plugin.zip"
+        with zipfile.ZipFile(inner, "w") as package:
+            package.writestr("blender_manifest.toml", MANIFEST)
+            package.writestr("payload.bin", os.urandom(1 * 1024 * 1024 + 1))
+        wrapper = make_wrapper_zip(tmp / "release.zip", inner.name, inner)
+        asset = wrapper.read_bytes()
+        api_payload = json.dumps(
+            {
+                "tag_name": "test-release",
+                "assets": [
+                    {
+                        "name": "release.zip",
+                        "browser_download_url": "https://cdn.example/release.zip",
+                        "size": len(asset),
+                    }
+                ],
+            }
+        ).encode()
+        requests = []
+
+        def open_request(request, timeout):
+            self.assertEqual(fetch_cats.TIMEOUT_SECONDS, timeout)
+            requests.append(request)
+            if request.full_url.startswith("https://api.github.com/"):
+                return FakeResponse(api_payload, request.full_url)
+            return FakeResponse(asset, request.full_url)
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "t0ken"}, clear=True):
+            with mock.patch.object(
+                fetch_cats.urllib.request,
+                "urlopen",
+                side_effect=open_request,
+            ):
+                _, exit_code = fetch_cats.fetch(
+                    tmp / "out", None, allow_drift=True
+                )
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("Bearer t0ken", requests[0].get_header("Authorization"))
+        self.assertIsNone(requests[1].get_header("Authorization"))
 
 
 class ReferenceFileTests(unittest.TestCase):
@@ -184,19 +402,25 @@ class ReferenceFileTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.archive = make_extension_zip(self.tmp / "cats.zip")
 
-    def test_reference_records_both_hashes_and_the_extension_id(self):
+    def test_reference_records_integrity_facts(self):
         for key in (
             "repository",
             "release_tag",
             "asset_name",
             "asset_sha256",
+            "asset_size",
             "extension_id",
             "extension_zip_name",
             "extension_sha256",
+            "extension_size",
+            "extension_version",
         ):
             self.assertIn(key, REFERENCE)
         for key in ("asset_sha256", "extension_sha256"):
             self.assertRegex(REFERENCE[key], r"\A[0-9a-f]{64}\Z")
+        for key in ("asset_size", "extension_size"):
+            self.assertIsInstance(REFERENCE[key], int)
+            self.assertGreater(REFERENCE[key], 0)
 
     def test_legacy_strict_flag_is_still_accepted(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
