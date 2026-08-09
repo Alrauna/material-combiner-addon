@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "repository": "Alrauna/Cats-Blender-Plugin",
-  "signer_workflow": "Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml",
+  "certificate_identity": "https://github.com/Alrauna/Cats-Blender-Plugin/.github/workflows/Cats%20Tests.yml@refs/heads/main",
   "source_ref": "refs/heads/main",
   "extension_id": "cats_blender_plugin",
   "extension_zip_name": "cats_blender_plugin.zip"

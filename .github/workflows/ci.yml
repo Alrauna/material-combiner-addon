@@ -244,10 +244,10 @@ jobs:
           run_split atlas      --script tests/blender/verify_atlas_workflows.py     --result r.json
 
       # The fetcher accepts the latest final CATS release only after the
-      # official GitHub CLI verifies the repository, signer workflow, main
-      # ref, exact release commit, and GitHub-hosted runner provenance. The
-      # retained --strict spelling is compatibility-neutral; it cannot bypass
-      # or weaken attestation.
+      # official GitHub CLI verifies the repository, exact workflow certificate
+      # identity, main ref, exact release commit, and GitHub-hosted runner
+      # provenance. The retained --strict spelling is compatibility-neutral;
+      # it cannot bypass or weaken attestation.
       #
       # GH_TOKEN authenticates the release lookup. Anonymous API access is 60
       # requests an hour per IP and hosted runners share egress addresses, so

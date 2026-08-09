@@ -181,7 +181,7 @@ def verify_attestation(
     archive: Path,
     *,
     repository: str,
-    signer_workflow: str,
+    certificate_identity: str,
     source_ref: str,
     source_digest: str,
 ) -> None:
@@ -197,8 +197,8 @@ def verify_attestation(
                 str(archive),
                 "--repo",
                 repository,
-                "--signer-workflow",
-                signer_workflow,
+                "--cert-identity",
+                certificate_identity,
                 "--source-ref",
                 source_ref,
                 "--source-digest",
@@ -308,7 +308,7 @@ def fetch(
         verify_attestation(
             asset_path,
             repository=reference["repository"],
-            signer_workflow=reference["signer_workflow"],
+            certificate_identity=reference["certificate_identity"],
             source_ref=reference["source_ref"],
             source_digest=source_digest,
         )

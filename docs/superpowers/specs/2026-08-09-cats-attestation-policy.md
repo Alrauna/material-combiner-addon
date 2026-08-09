@@ -33,15 +33,17 @@ the official GitHub CLI must successfully verify its default SLSA provenance
 with all of these constraints:
 
 - repository: `Alrauna/Cats-Blender-Plugin`;
-- signer workflow:
-  `Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml`;
+- exact workflow certificate identity:
+  `https://github.com/Alrauna/Cats-Blender-Plugin/.github/workflows/Cats%20Tests.yml@refs/heads/main`;
 - source ref: `refs/heads/main`;
 - source digest: the exact 40-hex commit reported by that release; and
 - self-hosted runners denied.
 
 The source digest is resolved for each release and is not committed. The signer
 workflow digest is deliberately not pinned: reviewed and protected `main` is
-the moving trust boundary. The tool does not implement Sigstore verification;
+the moving trust boundary. The percent-encoded workflow path is the exact SAN
+issued in GitHub's certificate, not a regular expression. The tool does not
+implement Sigstore verification;
 it delegates cryptography and certificate-policy enforcement to
 `gh attestation verify` and fails closed on a missing executable, timeout,
 nonzero result, or malformed release source digest.

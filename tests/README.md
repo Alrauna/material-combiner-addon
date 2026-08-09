@@ -52,11 +52,11 @@ python tools/fetch_cats.py --output-dir /tmp/cats
 It resolves the latest release of the repository recorded in
 `tools/cats_reference.json` and requires it to be final. Before parsing or
 unwrapping the downloaded ZIP, the tool uses `gh attestation verify` to prove
-the exact CATS repository, signer workflow, `main` ref, dynamically resolved
-release commit, and GitHub-hosted runner origin. No CATS version, tag, commit,
-size, or artifact hash is pinned. Tag, asset name, extension ID, and manifest
-version must agree dynamically, after which the unchanged Blender checkpoint
-decides API compatibility.
+the exact CATS repository, workflow certificate identity, `main` ref,
+dynamically resolved release commit, and GitHub-hosted runner origin. No CATS
+version, tag, commit, size, or artifact hash is pinned. Tag, asset name,
+extension ID, and manifest version must agree dynamically, after which the
+unchanged Blender checkpoint decides API compatibility.
 
 The tool accepts either a direct installable extension ZIP or the legacy
 single-inner-ZIP wrapper and prints the normalized archive path and SHA-256 for

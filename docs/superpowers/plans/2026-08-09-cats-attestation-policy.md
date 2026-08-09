@@ -12,7 +12,7 @@
 
 - Change only `Alrauna/material-combiner-addon`; do not modify CATS or Alpha Material Separator.
 - Commit no CATS version, tag, release commit, size, or SHA-256 pin.
-- Trust remote CATS bytes only after `gh attestation verify` constrains the repository, signer workflow, `refs/heads/main`, dynamically resolved release commit, and GitHub-hosted runner origin.
+- Trust remote CATS bytes only after `gh attestation verify` constrains the repository, exact workflow certificate identity, `refs/heads/main`, dynamically resolved release commit, and GitHub-hosted runner origin.
 - Do not pin the signer workflow digest and do not implement a custom Sigstore verifier.
 - Preserve bounded downloads/extraction, API-token host isolation, HTTPS enforcement, extension-ID validation, GitHub-output injection protection, and checkpoint SHA-256 handoff.
 - Preserve the extension API, imports, operators, RNA properties, registration/lifecycle behavior, bundled Pillow model, package layout, supported platforms, atlas behavior, and all valid existing tests.
@@ -24,6 +24,14 @@
   content writes, and retain the protected release environment on publication.
 - Preserve dry-run packaging and inspection without creating public
   attestations or releases for rehearsal artifacts.
+
+**Hosted-validation deviation (2026-08-09):** GitHub CLI's
+`--signer-workflow` matcher rejected CATS' valid attestation because the
+certificate SAN percent-encodes the workflow filename's space. Repository,
+source-ref, source-digest, and hosted-runner verification each passed
+independently. A RED verifier-contract test therefore replaced that matcher
+with `--cert-identity` and the exact issued SAN containing `Cats%20Tests.yml`.
+The official verifier and every other approved constraint remain unchanged.
 
 ---
 
@@ -67,7 +75,7 @@ git commit -m "docs: plan CATS attestation policy"
 
 **Interfaces:**
 - Consumes: the existing bounded `_get`, `_download`, `api_token`, and `sha256_file` helpers.
-- Produces: `resolve_latest(repository: str) -> tuple[str, str, str, int, str]` and `verify_attestation(archive: Path, *, repository: str, signer_workflow: str, source_ref: str, source_digest: str) -> None`.
+- Produces: `resolve_latest(repository: str) -> tuple[str, str, str, int, str]` and `verify_attestation(archive: Path, *, repository: str, certificate_identity: str, source_ref: str, source_digest: str) -> None`.
 
 - [ ] **Step 1: Write failing policy and release-metadata tests**
 
@@ -83,8 +91,8 @@ RELEASE_PIN_KEYS = {
 def test_policy_contains_identity_but_no_release_pin(self):
     self.assertEqual("Alrauna/Cats-Blender-Plugin", REFERENCE["repository"])
     self.assertEqual(
-        "Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml",
-        REFERENCE["signer_workflow"],
+        "https://github.com/Alrauna/Cats-Blender-Plugin/.github/workflows/Cats%20Tests.yml@refs/heads/main",
+        REFERENCE["certificate_identity"],
     )
     self.assertEqual("refs/heads/main", REFERENCE["source_ref"])
     self.assertEqual("cats_blender_plugin", REFERENCE["extension_id"])
@@ -133,7 +141,7 @@ Set its complete functional content to:
 {
   "schema_version": 2,
   "repository": "Alrauna/Cats-Blender-Plugin",
-  "signer_workflow": "Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml",
+  "certificate_identity": "https://github.com/Alrauna/Cats-Blender-Plugin/.github/workflows/Cats%20Tests.yml@refs/heads/main",
   "source_ref": "refs/heads/main",
   "extension_id": "cats_blender_plugin",
   "extension_zip_name": "cats_blender_plugin.zip"
@@ -185,7 +193,7 @@ git commit -m "test: define moving CATS provenance policy"
 - Modify: `tools/fetch_cats.py`
 
 **Interfaces:**
-- Consumes: `resolve_latest(...)` from Task 1 and policy keys `repository`, `signer_workflow`, and `source_ref`.
+- Consumes: `resolve_latest(...)` from Task 1 and policy keys `repository`, `certificate_identity`, and `source_ref`.
 - Produces: `verify_attestation(...) -> None`; remote `fetch(...)` reports `attestation_verified: true`, while local archive mode reports `false`.
 
 - [ ] **Step 1: Write failing verifier-process tests**
@@ -197,8 +205,8 @@ Add `AttestationTests` using `mock.patch.object(shutil, "which")` and
 [
     "/usr/bin/gh", "attestation", "verify", str(archive),
     "--repo", "Alrauna/Cats-Blender-Plugin",
-    "--signer-workflow",
-    "Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml",
+    "--cert-identity",
+    "https://github.com/Alrauna/Cats-Blender-Plugin/.github/workflows/Cats%20Tests.yml@refs/heads/main",
     "--source-ref", "refs/heads/main",
     "--source-digest", "a" * 40,
     "--deny-self-hosted-runners",
@@ -247,7 +255,7 @@ def verify_attestation(
     archive: Path,
     *,
     repository: str,
-    signer_workflow: str,
+    certificate_identity: str,
     source_ref: str,
     source_digest: str,
 ) -> None:
@@ -257,7 +265,7 @@ def verify_attestation(
     command = [
         executable, "attestation", "verify", str(archive),
         "--repo", repository,
-        "--signer-workflow", signer_workflow,
+        "--cert-identity", certificate_identity,
         "--source-ref", source_ref,
         "--source-digest", source_digest,
         "--deny-self-hosted-runners",

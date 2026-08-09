@@ -235,9 +235,9 @@ class AttestationTests(unittest.TestCase):
                 fetch_cats.verify_attestation(
                     self.archive,
                     repository="Alrauna/Cats-Blender-Plugin",
-                    signer_workflow=(
-                        "Alrauna/Cats-Blender-Plugin/"
-                        ".github/workflows/Cats Tests.yml"
+                    certificate_identity=(
+                        "https://github.com/Alrauna/Cats-Blender-Plugin/"
+                        ".github/workflows/Cats%20Tests.yml@refs/heads/main"
                     ),
                     source_ref="refs/heads/main",
                     source_digest="a" * 40,
@@ -251,10 +251,10 @@ class AttestationTests(unittest.TestCase):
                 str(self.archive),
                 "--repo",
                 "Alrauna/Cats-Blender-Plugin",
-                "--signer-workflow",
+                "--cert-identity",
                 (
-                    "Alrauna/Cats-Blender-Plugin/"
-                    ".github/workflows/Cats Tests.yml"
+                    "https://github.com/Alrauna/Cats-Blender-Plugin/"
+                    ".github/workflows/Cats%20Tests.yml@refs/heads/main"
                 ),
                 "--source-ref",
                 "refs/heads/main",
@@ -275,7 +275,7 @@ class AttestationTests(unittest.TestCase):
                     fetch_cats.verify_attestation(
                         self.archive,
                         repository="Alrauna/Cats-Blender-Plugin",
-                        signer_workflow="workflow.yml",
+                        certificate_identity="https://example.test/workflow.yml",
                         source_ref="refs/heads/main",
                         source_digest="a" * 40,
                     )
@@ -298,7 +298,7 @@ class AttestationTests(unittest.TestCase):
                     fetch_cats.verify_attestation(
                         self.archive,
                         repository="Alrauna/Cats-Blender-Plugin",
-                        signer_workflow="workflow.yml",
+                        certificate_identity="https://example.test/workflow.yml",
                         source_ref="refs/heads/main",
                         source_digest="a" * 40,
                     )
@@ -647,8 +647,11 @@ class ReferenceFileTests(unittest.TestCase):
             "Alrauna/Cats-Blender-Plugin", REFERENCE["repository"]
         )
         self.assertEqual(
-            "Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml",
-            REFERENCE.get("signer_workflow"),
+            (
+                "https://github.com/Alrauna/Cats-Blender-Plugin/"
+                ".github/workflows/Cats%20Tests.yml@refs/heads/main"
+            ),
+            REFERENCE.get("certificate_identity"),
         )
         self.assertEqual("refs/heads/main", REFERENCE.get("source_ref"))
         self.assertEqual("cats_blender_plugin", REFERENCE["extension_id"])

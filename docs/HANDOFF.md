@@ -9,7 +9,7 @@ only attested release archives, then bump Material Combiner to 3.1.1. The
 approved combined design and test-first implementation plan are recorded in
 `docs/superpowers/specs/2026-08-09-cats-attestation-policy.md` and
 `docs/superpowers/plans/2026-08-09-cats-attestation-policy.md`. Production
-implementation is in progress.
+implementation is complete; the corrected hosted CI rerun remains pending.
 
 Post-merge CI run 31284931104 failed on Windows, Linux, and macOS only at
 `Fetch and verify CATS`; every preceding source, package, atlas, wheel, and
@@ -29,8 +29,8 @@ producer-side build/attest/publish pattern.
 The approved consumer policy commits no CATS version, tag, commit, size, hash,
 minimum version, or signer-workflow digest. Material Combiner accepts the
 latest final release only when `gh attestation verify` proves the exact CATS
-repository, signer workflow, `main` ref, dynamically resolved release commit,
-and GitHub-hosted runner origin. Existing bounded acquisition and manifest
+repository, workflow certificate identity, `main` ref, dynamically resolved
+release commit, and GitHub-hosted runner origin. Existing bounded acquisition and manifest
 identity checks remain, and the unchanged Blender checkpoint decides API
 compatibility. CATS and Alpha Material Separator receive no changes because
 Material Combiner is optional and neither producer should depend on it.
@@ -45,11 +45,16 @@ it public. Dry runs preserve build, validation, checksum, and inspectable
 artifact coverage but deliberately create neither public attestations nor
 releases. CATS and Alpha Material Separator workflows remain unchanged.
 
-Local GitHub CLI 2.97.0 finds the public provenance records but currently
-fails cryptographic verification with `Error: verifying with issuer
-"sigstore.dev"`. The implementation must use the official verifier without a
-fallback; a GitHub-hosted run is therefore a blocking acceptance gate. No
-fallback; a GitHub-hosted run is therefore a blocking acceptance gate.
+Draft PR 18 is open at
+`https://github.com/Alrauna/material-combiner-addon/pull/18`. Hosted run
+31316520767 passed every pre-CATS step on all three platforms, then failed at
+the CATS fetch with `Error: verifying with issuer "sigstore.dev"`. The same
+failure reproduced locally only when `--signer-workflow` was present; repository,
+source-ref, source-digest, and hosted-runner constraints each passed alone.
+Verified JSON shows GitHub issued the exact certificate SAN with the workflow
+space percent-encoded as `Cats%20Tests.yml`. Replacing the brittle matcher with
+`--cert-identity` for that exact SAN preserves the official verifier and all
+other approved constraints. A corrected hosted rerun is the remaining gate.
 
 Planning artifacts were committed as `be69387` and expanded for producer-side
 attestation in `8045189`. The no-pin CATS consumer is committed as `06c4d45`:
@@ -83,17 +88,18 @@ Fresh local validation after all implementation commits:
   preflight failures, dependency absence, atlas workflows, and Windows
   long-path atlas workflows. Three installed-package suites passed: bundled
   dependency, public API, and atlas workflows.
-- The live strict CATS 5.2.2 fetch resolved exact release commit
-  `a35128c74e39ad0d81890af084d7cf56c5e38f58` and failed closed before ZIP
-  parsing because local GitHub CLI 2.97.0 still reports
-  `Error: verifying with issuer "sigstore.dev"`. The CATS checkpoint was not
-  run with that unattested archive. GitHub-hosted CATS verification is blocking.
+- The corrected live strict CATS 5.2.2 fetch verified the exact certificate
+  identity and release commit `a35128c74e39ad0d81890af084d7cf56c5e38f58`
+  before ZIP parsing. The attested asset and normalized extension both hash to
+  `b837de71f944cc6a78be315058096588d7c337ea5472b8d732d5b3ec6822e189`.
+  The unchanged Blender 5.2 CATS integration, restart, and uninstall checkpoint
+  passed against those exact bytes.
 - Windows cannot cover the foreground atlas undo/repeatability assertion; the
   hosted Linux foreground suite remains required. Local `actionlint` and YAML
   parser dependencies are unavailable, so GitHub's workflow parser and hosted
   workflow contract run are also required before completion.
 
-The working tree was clean after review. The complete branch diff contains
+The pre-correction branch was clean after review. The complete branch diff contains
 only the approved attestation policy, workflow, tests, version metadata, and
 documentation. No extension public API, operator, RNA, registration, package
 layout, platform, wheel, atlas, or CATS checkpoint contract changed.

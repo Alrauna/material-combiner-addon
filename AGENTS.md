@@ -247,10 +247,10 @@ Linux:
 - `checkpoint` mode for approved CATS integration, restart, and uninstall
   checks. Obtain the CATS archive with `tools/fetch_cats.py`, which accepts the
   latest final release only after the official GitHub CLI verifies its build
-  provenance against the approved repository, signer workflow, `main` ref,
-  exact release commit, and GitHub-hosted runner policy. No CATS release
-  version or artifact hash is pinned; the unchanged checkpoint determines API
-  compatibility.
+  provenance against the approved repository, exact workflow certificate
+  identity, `main` ref, exact release commit, and GitHub-hosted runner policy.
+  No CATS release version or artifact hash is pinned; the unchanged checkpoint
+  determines API compatibility.
 
 The atlas undo and repeatability check needs `source --foreground`. In
 background mode it reports that it requires a foreground context instead of
