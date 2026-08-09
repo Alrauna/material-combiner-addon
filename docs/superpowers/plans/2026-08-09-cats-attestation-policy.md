@@ -1,10 +1,10 @@
-# CATS Attestation Policy Implementation Plan
+# CATS Consumption and Material Combiner Release Attestation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Repository policy forbids subagent execution unless the user separately requests it.
 
-**Goal:** Make Material Combiner 3.1.1 consume the latest final CATS release only after strict GitHub build-provenance verification, with no committed CATS release pin.
+**Goal:** Make Material Combiner 3.1.1 consume the latest final CATS release only after strict GitHub build-provenance verification, with no committed CATS release pin, and publish Material Combiner releases only after all four ZIPs receive GitHub provenance attestations.
 
-**Architecture:** Keep `tools/fetch_cats.py` as the single acquisition boundary. Replace its immutable release snapshot with repository/workflow policy, invoke the installed GitHub CLI for cryptographic verification before ZIP parsing, retain existing safety bounds and archive normalization, then let the unchanged Blender checkpoint decide compatibility.
+**Architecture:** Keep `tools/fetch_cats.py` as the single CATS acquisition boundary. Replace its immutable release snapshot with repository/workflow policy, invoke the installed GitHub CLI for cryptographic verification before ZIP parsing, retain existing safety bounds and archive normalization, then let the unchanged Blender checkpoint decide compatibility. Split Material Combiner release handling into least-privilege package, attestation, and publish jobs connected by an exact current-run workflow artifact and checksum manifest.
 
 **Tech Stack:** Python 3.13 standard library, GitHub CLI artifact attestations, GitHub Actions, Blender 5.2 extension tooling, `unittest`.
 
@@ -18,6 +18,12 @@
 - Preserve the extension API, imports, operators, RNA properties, registration/lifecycle behavior, bundled Pillow model, package layout, supported platforms, atlas behavior, and all valid existing tests.
 - Keep `--archive`, `--strict`, and `--allow-drift` accepted; no remote option may bypass attestation.
 - Set Material Combiner's manifest version and development target to `3.1.1`.
+- Attest every published universal and platform-specific Material Combiner ZIP
+  with the SHA-pinned official `actions/attest` action before publication.
+- Keep package jobs read-only, isolate OIDC/attestation writes from release
+  content writes, and retain the protected release environment on publication.
+- Preserve dry-run packaging and inspection without creating public
+  attestations or releases for rehearsal artifacts.
 
 ---
 
@@ -313,7 +319,113 @@ git diff --cached --check
 git commit -m "feat: trust attested CATS releases"
 ```
 
-### Task 3: Wire CI policy, documentation, and Material Combiner 3.1.1
+### Task 3: Require attestation before publishing Material Combiner releases
+
+**Files:**
+- Modify: `.github/workflows/ci.yml`
+- Add: `tests/unit/test_ci_workflow_contract.py`
+
+**Interfaces:**
+- Consumes: the existing `release_gate`, exact-source checkout, four-archive build, Blender validation, `tools/ci.py prepare-release`, protected `release` environment, and dry-run input.
+- Produces: `release_package -> release_attestation -> release_publish`, connected only by current-run artifact identity, job outputs, and checksums.
+
+- [ ] **Step 1: Write failing release-workflow contract tests**
+
+Using only `pathlib`, `re`, and `unittest`, load `.github/workflows/ci.yml` as
+text and assert:
+
+- the three named release jobs and dependency order exist;
+- package has only `contents: read`, attestation has exactly `actions: read`,
+  `contents: read`, `id-token: write`, and `attestations: write`, and publish has
+  `actions: read` plus `contents: write` and `environment: release`;
+- package uploads one fixed-name artifact containing exactly four ZIPs and
+  `SHA256SUMS.txt`, with `if-no-files-found: error`, one-day retention, and
+  compression level zero;
+- both consumers run `gh run download $GITHUB_RUN_ID` with the explicit
+  repository and artifact name, reject extra/missing files, and verify every
+  checksum;
+- a single SHA-pinned
+  `actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` invocation uses
+  only the verified `*.zip` subjects;
+- publish depends on attestation and keeps the existing draft/upload/download/
+  rehash/publish order; and
+- dry runs reach package upload and summary but cannot reach attestation or
+  publication.
+
+Retain `tests/unit/test_ci.py` release identity, exact archive set, checksum,
+and manifest/platform agreement tests unchanged.
+
+- [ ] **Step 2: Run the contract tests and confirm RED**
+
+```powershell
+python -m unittest tests.unit.test_ci_workflow_contract -v
+```
+
+Expected: failures because the workflow still has one combined release job and
+does not invoke `actions/attest`.
+
+- [ ] **Step 3: Split the package job with a bounded artifact handoff**
+
+Rename the existing job to `release_package`. Keep exact public-source checkout,
+all four builds, Blender validation, and `prepare-release`. Give it only
+`contents: read`. Emit the tag, archive list, and a SHA-256 of
+`SHA256SUMS.txt` as job outputs. Upload the four ZIPs and checksum file under a
+fixed artifact name with the proven pinned `actions/upload-artifact` version,
+`if-no-files-found: error`, `retention-days: 1`, and `compression-level: 0`.
+
+For a dry run, retain the inspectable artifact and summary. Do not request OIDC,
+write repository contents, check or mutate tags/releases, or attest rehearsal
+bytes in this job.
+
+- [ ] **Step 4: Add the isolated attestation job**
+
+Run only for real release dispatches from the protected release branch in a
+public repository. Depend on `release_package`, use no checkout, grant exactly
+`actions: read`, `contents: read`, `id-token: write`, and `attestations: write`,
+and download the fixed artifact from `GITHUB_RUN_ID` with explicit `--repo` and
+`--name` arguments.
+
+Require exactly the four expected ZIP names plus `SHA256SUMS.txt`, require the
+checksum file's digest to equal the package output, and verify all four ZIP
+digests. Then invoke the pinned official action once with:
+
+```yaml
+subject-path: '${{ runner.temp }}/downloaded-release/*.zip'
+```
+
+The job must have neither `contents: write`, a protected environment, checkout,
+nor release mutation commands.
+
+- [ ] **Step 5: Add the protected publish job**
+
+Depend on both `release_package` and `release_attestation`, use no checkout,
+grant `actions: read` and `contents: write`, and retain `environment: release`.
+Independently download the same current-run artifact and repeat the exact-set,
+checksum-file digest, and per-ZIP checksum validation. Only then retain the
+existing refusal of an existing tag/release, draft creation, upload of the four
+ZIPs and checksum file, download and hash verification of stored ZIPs, and
+final publication. A failed attestation or any byte mismatch must prevent this
+job from starting or publishing.
+
+- [ ] **Step 6: Run workflow contracts and existing release tests GREEN**
+
+```powershell
+python -m unittest tests.unit.test_ci_workflow_contract tests.unit.test_ci -v
+python -m ruff check tests/unit/test_ci_workflow_contract.py
+```
+
+Expected: all workflow security contracts and existing release identity tests
+pass.
+
+- [ ] **Step 7: Commit the release-provenance unit**
+
+```powershell
+git add .github/workflows/ci.yml tests/unit/test_ci_workflow_contract.py
+git diff --cached --check
+git commit -m "ci: attest Material Combiner releases"
+```
+
+### Task 4: Wire CATS CI policy, documentation, and Material Combiner 3.1.1
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
@@ -324,60 +436,38 @@ git commit -m "feat: trust attested CATS releases"
 
 **Interfaces:**
 - Consumes: unchanged `tools/fetch_cats.py --strict --github-output ...` CLI and unchanged checkpoint `--cats`/`--cats-sha256` inputs.
-- Produces: Material Combiner manifest version `3.1.1` and accurate operator documentation for attestation-backed latest-release testing.
+- Produces: Material Combiner manifest version `3.1.1` and accurate operator documentation for both attestation-backed CATS testing and attested release publication.
 
-- [ ] **Step 1: Update CI comments and step naming without changing test scope**
+- [ ] **Step 1: Update CATS CI comments and step naming without changing test scope**
 
 Rename the existing step to `Fetch and attest CATS`. Keep `GH_TOKEN`,
 `--strict`, `--github-output`, the environment-based path handoff, and the full
-checkpoint command. Replace pin-oriented comments with a concise explanation
-that the fetcher verifies repository/workflow/main/exact-release-commit/hosted-
-runner provenance before outputting the archive. Do not add actions,
-permissions, jobs, matrices, or CATS/AMS repository changes.
+checkpoint command. Explain that the fetcher verifies repository/workflow/main/
+exact-release-commit/hosted-runner provenance before outputting the archive.
 
 - [ ] **Step 2: Bump only authoritative project version metadata**
 
-Change `addon/blender_manifest.toml` to:
+Change `addon/blender_manifest.toml` to `version = "3.1.1"` and the development
+target in `AGENTS.md` from 3.1.0 to 3.1.1. Do not rewrite generic 3.1.0 unit-test
+fixtures.
 
-```toml
-version = "3.1.1"
-```
+- [ ] **Step 3: Replace pin-oriented testing and release documentation**
 
-Change the development target in `AGENTS.md` from `3.1.0` to `3.1.1`. Do not
-rewrite version strings inside unit-test fixtures that deliberately exercise
-generic 3.1.0 release behavior.
+Update `tests/README.md` for the no-pin CATS consumer policy, non-bypassable
+remote attestation, explicitly unattested offline archives, exact checkpoint
+hash handoff, and the package/attest/publish release sequence. Update
+`docs/HANDOFF.md` with RED/GREEN evidence, the local Sigstore limitation if it
+persists, dry-run behavior, and hosted acceptance requirements.
 
-- [ ] **Step 3: Replace pin-oriented testing documentation**
-
-Update `tests/README.md` to state that remote mode resolves the latest final
-CATS release and accepts it only after official GitHub attestation verification
-against the policy in `tools/cats_reference.json`. Document that no release
-version or hash is pinned, `--strict` is retained for compatibility, remote
-`--allow-drift` cannot bypass provenance, and `--archive` is an explicit
-unattested offline inspection path. Retain the checkpoint SHA-256 explanation:
-it proves the installed file is the exact file the fetch step produced.
-
-- [ ] **Step 4: Update the handoff to the implemented branch state**
-
-Replace the active-branch section with the approved no-pin trust model, exact
-files changed, RED/GREEN evidence, completed validation, the local Sigstore
-verifier limitation if it persists, and the next required hosted acceptance
-action. Remove obsolete claims that 5.2.1 is latest or that 5.2.1.1 remains
-unresolved.
-
-- [ ] **Step 5: Run metadata and documentation checks**
-
-Run:
+- [ ] **Step 4: Run metadata and documentation checks**
 
 ```powershell
-python -m unittest tests.unit.test_fetch_cats tests.unit.test_run_tests tests.unit.test_ci -v
+python -m unittest tests.unit.test_fetch_cats tests.unit.test_run_tests tests.unit.test_ci tests.unit.test_ci_workflow_contract -v
 python -m ruff check .
 git diff --check
 ```
 
-Expected: all tests and Ruff pass; diff check prints nothing.
-
-- [ ] **Step 6: Commit the CI, version, and documentation unit**
+- [ ] **Step 5: Commit the version and documentation unit**
 
 ```powershell
 git add .github/workflows/ci.yml addon/blender_manifest.toml AGENTS.md tests/README.md docs/HANDOFF.md
@@ -385,7 +475,7 @@ git diff --cached --check
 git commit -m "chore: prepare Material Combiner 3.1.1"
 ```
 
-### Task 4: Run complete preservation and hosted acceptance gates
+### Task 5: Run complete preservation and hosted acceptance gates
 
 **Files:**
 - Modify during closeout only: `docs/HANDOFF.md`
@@ -478,8 +568,13 @@ the extension public contracts have no diff.
 After publication is separately authorized, push this topic branch and open a
 pull request to `master`. Require all three `Fetch and attest CATS` matrix
 steps and their unchanged checkpoints to pass on GitHub-hosted Windows, Linux,
-and macOS runners. A hosted verifier failure blocks completion and is debugged
-without weakening flags or tests.
+and macOS runners. Exercise a 3.1.1 dry run and require the package artifact to
+contain exactly four ZIPs plus `SHA256SUMS.txt`, with no tag, release, or public
+attestation. For the separately authorized real release, require the
+attestation job to succeed before publication and verify each published ZIP
+with `gh attestation verify --repo Alrauna/material-combiner-addon`. A hosted
+verifier or producer-attestation failure blocks completion and is debugged
+without weakening permissions, flags, or tests.
 
 - [ ] **Step 8: Close the completed milestone**
 

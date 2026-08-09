@@ -4,11 +4,12 @@
 
 `codex/cats-update-policy-3.1.1` starts from merged `master` at `441a93c`.
 The requested scope is to make normal CI consume new upstream CATS releases
-through attestation rather than release pinning, then bump Material Combiner to
-3.1.1. The approved design and test-first implementation plan are recorded in
+through attestation rather than release pinning, make Material Combiner publish
+only attested release archives, then bump Material Combiner to 3.1.1. The
+approved combined design and test-first implementation plan are recorded in
 `docs/superpowers/specs/2026-08-09-cats-attestation-policy.md` and
 `docs/superpowers/plans/2026-08-09-cats-attestation-policy.md`. Production
-implementation is waiting for plan approval.
+implementation is in progress.
 
 Post-merge CI run 31284931104 failed on Windows, Linux, and macOS only at
 `Fetch and verify CATS`; every preceding source, package, atlas, wheel, and
@@ -34,11 +35,37 @@ identity checks remain, and the unchanged Blender checkpoint decides API
 compatibility. CATS and Alpha Material Separator receive no changes because
 Material Combiner is optional and neither producer should depend on it.
 
+The approved producer policy adapts Alpha Material Separator's demonstrated
+least-privilege handoff to Material Combiner's four release ZIPs. A read-only
+package job builds and validates the exact release files once and uploads them
+with `SHA256SUMS.txt`; an isolated OIDC job downloads and verifies that exact
+current-run artifact and attests all four ZIPs; only a dependent protected job
+may write the draft release, re-download and rehash its stored bytes, and make
+it public. Dry runs preserve build, validation, checksum, and inspectable
+artifact coverage but deliberately create neither public attestations nor
+releases. CATS and Alpha Material Separator workflows remain unchanged.
+
 Local GitHub CLI 2.97.0 finds the public provenance records but currently
 fails cryptographic verification with `Error: verifying with issuer
 "sigstore.dev"`. The implementation must use the official verifier without a
 fallback; a GitHub-hosted run is therefore a blocking acceptance gate. No
-production or version metadata changes have been made on this branch yet.
+version metadata changes have been made on this branch yet.
+
+Planning artifacts were committed as `be69387`. Test-first implementation is
+in progress and uncommitted: moving release metadata and the exact official
+`gh attestation verify` argument policy have RED/GREEN coverage, as do arbitrary
+future versions, attestation-before-ZIP parsing, non-bypassable attestation
+failure, dynamic tag/name/manifest agreement, and explicit unattested local
+archives. The fetcher now uses those behaviors, but the complete fetcher suite
+cannot be green until obsolete pin-specific tests are resolved.
+
+Two attempts to convert the old committed extension-size/version/hash drift
+tests into dynamic integrity, provenance-bypass, and published/downloaded-size
+tests were rejected as potential test weakening. The user has now explicitly
+approved replacing those obsolete pin expectations while retaining the
+underlying bounds, same-file SHA-256, extension identity, mismatch-failure, and
+unchanged Blender compatibility coverage. Workflow contract tests must be
+added before splitting the release jobs.
 
 ## Completed security-hardening branch
 
