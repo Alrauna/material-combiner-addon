@@ -31,8 +31,8 @@ relative-path commands return the unchanged 64-hex manifest and ZIP digests.
 After merge, start a new non-dry-run 3.1.1 dispatch from protected `master`.
 That is the hosted acceptance test for the corrected attestation and
 publication jobs; rerunning 31317909983 would execute its old commit. The
-design and plan remain in `docs/superpowers/` only until this milestone's final
-commit, then Git history retains them.
+approved design and plan were committed in `b187c9d` and removed from the
+completed milestone's final tree; Git history retains them for review.
 
 ## Completed release-attestation branch
 
