@@ -28,6 +28,11 @@ reproduction against the failed run's downloaded artifact proves both old
 absolute-path commands return a leading `\` and length 65, while both new
 relative-path commands return the unchanged 64-hex manifest and ZIP digests.
 
+Draft PR 19 is open at
+`https://github.com/Alrauna/material-combiner-addon/pull/19`. Hosted run
+31318875927 passes Windows, Linux, and macOS; CodeQL passes for both Actions
+and Python. Release-capability jobs correctly remain skipped on the PR event.
+
 After merge, start a new non-dry-run 3.1.1 dispatch from protected `master`.
 That is the hosted acceptance test for the corrected attestation and
 publication jobs; rerunning 31317909983 would execute its old commit. The
