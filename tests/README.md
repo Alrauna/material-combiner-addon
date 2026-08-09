@@ -50,16 +50,40 @@ python tools/fetch_cats.py --output-dir /tmp/cats
 ```
 
 It resolves the latest release of the repository recorded in
-`tools/cats_reference.json`, downloads the asset, and unwraps it. The
-published asset is a wrapper whose single entry is the installable extension
-ZIP, which Blender cannot install directly. The tool prints the unwrapped
-archive path and its SHA-256 for the runner to consume.
+`tools/cats_reference.json` and requires it to be final. Before parsing or
+unwrapping the downloaded ZIP, the tool uses `gh attestation verify` to prove
+the exact CATS repository, workflow certificate identity, `main` ref,
+dynamically resolved release commit, and GitHub-hosted runner origin. No CATS
+version, tag, commit, size, or artifact hash is pinned. Tag, asset name,
+extension ID, and manifest version must agree dynamically, after which the
+unchanged Blender checkpoint decides API compatibility.
 
-Hash or tag drift fails by default. The retained `--strict` spelling makes that
-policy explicit for existing scripts. Use `--allow-drift` only for deliberate
-local inspection of an unpinned release; an unexpected extension id always
-fails, since the checkpoint could not enable it anyway. Use `--archive` to run
-offline from a local copy.
+The tool accepts either a direct installable extension ZIP or the legacy
+single-inner-ZIP wrapper and prints the normalized archive path and SHA-256 for
+the runner. Supplying that SHA-256 to the checkpoint proves Blender installs
+the exact bytes that passed acquisition, not that the bytes match a committed
+release pin.
+
+The retained `--strict` spelling remains accepted for existing scripts and
+remote downloads always require attestation. `--allow-drift` cannot bypass a
+remote provenance, identity, or transport-size failure. Use `--archive` only
+for explicit offline inspection: local archives are labeled unattested, and
+`--strict --archive` fails because provenance cannot be established offline.
+
+## Release provenance
+
+A release dispatch packages and validates the universal ZIP and all three
+platform ZIPs once, writes `SHA256SUMS.txt`, and passes those exact five files
+through a one-day current-run workflow artifact. For a real release, an
+isolated job independently verifies the artifact and uses the SHA-pinned
+official GitHub attestation action on all four ZIPs. The protected publish job
+starts only after attestation succeeds, verifies the same artifact again,
+uploads a draft, re-downloads and hashes the stored ZIPs, and only then makes
+the release public.
+
+A dry run exercises checkout, packaging, Blender validation, checksums, and
+the inspectable artifact handoff. It intentionally creates neither a public
+attestation nor a tag or release for rehearsal bytes.
 
 ## Options
 

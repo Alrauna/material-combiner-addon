@@ -308,6 +308,25 @@ class PrepareReleaseTests(unittest.TestCase):
                 digest, ci.sha256_file(self.release / name)
             )
 
+    def test_outputs_checksum_manifest_digest_for_artifact_handoff(self):
+        self._write_all()
+        github_output = self.tmp / "github-output.txt"
+        with contextlib.redirect_stdout(io.StringIO()):
+            ci.prepare_release(
+                "3.1.0",
+                self.manifest,
+                self.release,
+                self.checksums,
+                github_output,
+            )
+        outputs = dict(
+            line.split("=", 1)
+            for line in github_output.read_text(encoding="utf-8").splitlines()
+        )
+        self.assertEqual(
+            ci.sha256_file(self.checksums), outputs["checksums_sha256"]
+        )
+
     def test_missing_archive_fails(self):
         self._write_all()
         next(self.release.glob("*-linux_x64.zip")).unlink()

@@ -553,7 +553,12 @@ def prepare_release(
 
     digests = write_sha256s(paths, checksum_output)
     if github_output is not None:
-        write_github_output(github_output, tag=tag, archives=" ".join(names))
+        write_github_output(
+            github_output,
+            tag=tag,
+            archives=" ".join(names),
+            checksums_sha256=sha256_file(checksum_output),
+        )
     print(f"tag: {tag}")
     for name, digest in digests.items():
         print(f"  {digest}  {name}")
