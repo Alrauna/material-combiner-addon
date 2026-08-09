@@ -6,10 +6,10 @@
 The requested scope is to make normal CI consume new upstream CATS releases
 through attestation rather than release pinning, make Material Combiner publish
 only attested release archives, then bump Material Combiner to 3.1.1. The
-approved combined design and test-first implementation plan are recorded in
-`docs/superpowers/specs/2026-08-09-cats-attestation-policy.md` and
-`docs/superpowers/plans/2026-08-09-cats-attestation-policy.md`. Production
-implementation is complete; the corrected hosted CI rerun remains pending.
+approved combined design and test-first implementation plan were committed as
+`be69387` and expanded in `8045189`; the final-tree copies are removed at the
+completed milestone boundary and remain recoverable from Git history.
+Production implementation and hosted acceptance are complete.
 
 Post-merge CI run 31284931104 failed on Windows, Linux, and macOS only at
 `Fetch and verify CATS`; every preceding source, package, atlas, wheel, and
@@ -54,7 +54,8 @@ source-ref, source-digest, and hosted-runner constraints each passed alone.
 Verified JSON shows GitHub issued the exact certificate SAN with the workflow
 space percent-encoded as `Cats%20Tests.yml`. Replacing the brittle matcher with
 `--cert-identity` for that exact SAN preserves the official verifier and all
-other approved constraints. A corrected hosted rerun is the remaining gate.
+other approved constraints. Corrected PR run 31317137520 then passed the full
+Windows, Linux, and macOS matrix; both CodeQL analyses also passed.
 
 Planning artifacts were committed as `be69387` and expanded for producer-side
 attestation in `8045189`. The no-pin CATS consumer is committed as `06c4d45`:
@@ -72,7 +73,7 @@ manifest binding, SHA-pinned official action, dry-run boundary, and publication
 ordering. Those contracts plus the existing release, DNS-parser, three-resolver
 consensus, and committed Blender checksum-pin tests pass: 42 tests total.
 Focused Ruff checks pass. The manifest and development target are now 3.1.1;
-local preservation validation is recorded below, and hosted CI remains.
+local and hosted preservation validation is recorded below.
 
 Fresh local validation after all implementation commits:
 
@@ -94,15 +95,28 @@ Fresh local validation after all implementation commits:
   `b837de71f944cc6a78be315058096588d7c337ea5472b8d732d5b3ec6822e189`.
   The unchanged Blender 5.2 CATS integration, restart, and uninstall checkpoint
   passed against those exact bytes.
-- Windows cannot cover the foreground atlas undo/repeatability assertion; the
-  hosted Linux foreground suite remains required. Local `actionlint` and YAML
-  parser dependencies are unavailable, so GitHub's workflow parser and hosted
-  workflow contract run are also required before completion.
+- Corrected PR run 31317137520 passed Windows, Linux, and macOS, including the
+  attested CATS fetch and unchanged checkpoint on every platform. Linux also
+  passed the foreground atlas undo/repeatability suite. CodeQL passed for both
+  Python and Actions.
+- Non-publishing release dry run 31317244348 passed all three platform gates,
+  built and validated the four 3.1.1 ZIPs, generated `SHA256SUMS.txt`, and
+  uploaded the exact five-file handoff. An independent download confirmed the
+  inventory and all four checksums. Attestation and publication stayed skipped
+  as required for dry runs.
+- GitHub reports Node.js 20 deprecation warnings for the currently SHA-pinned
+  `actions/upload-artifact` revision. This did not affect validation and is a
+  future action-maintenance topic, not part of this security branch.
 
-The pre-correction branch was clean after review. The complete branch diff contains
+The complete branch diff contains
 only the approved attestation policy, workflow, tests, version metadata, and
 documentation. No extension public API, operator, RNA, registration, package
 layout, platform, wheel, atlas, or CATS checkpoint contract changed.
+
+Recommended next action: review and merge draft PR 18. Do not dispatch the real
+3.1.1 release until this branch lands on protected `master`; the public release
+dispatch is the first authorized execution of the attestation and publication
+jobs.
 
 ## Completed security-hardening branch
 
