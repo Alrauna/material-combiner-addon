@@ -26,6 +26,7 @@ REFERENCE = json.loads(
     (ROOT / "tools" / "cats_reference.json").read_text(encoding="utf-8")
 )
 MANIFEST = 'schema_version = "1.0.0"\nid = "cats_blender_plugin"\n'
+TEST_VERSION = "99.4.7"
 
 
 class FakeResponse:
@@ -47,7 +48,7 @@ class FakeResponse:
 def make_extension_zip(
     path: Path,
     extension_id: str = "cats_blender_plugin",
-    version: str = REFERENCE["extension_version"],
+    version: str = TEST_VERSION,
 ):
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
@@ -157,26 +158,309 @@ class BoundedInputTests(unittest.TestCase):
         self.assertFalse(target.exists())
 
 
+class ReleaseMetadataTests(unittest.TestCase):
+    def payload(self, **changes):
+        payload = {
+            "tag_name": "v99.4.7",
+            "draft": False,
+            "prerelease": False,
+            "target_commitish": "a" * 40,
+            "assets": [
+                {
+                    "name": "cats_blender_plugin-99.4.7.zip",
+                    "browser_download_url": "https://example.test/cats.zip",
+                    "size": 123,
+                }
+            ],
+        }
+        payload.update(changes)
+        return json.dumps(payload).encode()
+
+    def resolve(self, **changes):
+        with mock.patch.object(
+            fetch_cats, "_get", return_value=self.payload(**changes)
+        ):
+            return fetch_cats.resolve_latest(REFERENCE["repository"])
+
+    def test_latest_release_returns_dynamic_source_commit(self):
+        self.assertEqual(
+            (
+                "v99.4.7",
+                "cats_blender_plugin-99.4.7.zip",
+                "https://example.test/cats.zip",
+                123,
+                "a" * 40,
+            ),
+            self.resolve(),
+        )
+
+    def test_draft_and_prerelease_metadata_are_rejected(self):
+        for changes in ({"draft": True}, {"prerelease": True}):
+            with self.subTest(changes=changes):
+                with self.assertRaises(RuntimeError):
+                    self.resolve(**changes)
+
+    def test_release_target_must_be_an_exact_commit(self):
+        for target in ("main", "a" * 39, "g" * 40, None):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(RuntimeError, "exact commit"):
+                    self.resolve(target_commitish=target)
+
+    def test_release_requires_exactly_one_zip_asset(self):
+        zip_asset = {
+            "name": "cats.zip",
+            "browser_download_url": "https://example.test/cats.zip",
+            "size": 123,
+        }
+        for assets in ([], [zip_asset, dict(zip_asset)]):
+            with self.subTest(count=len(assets)):
+                with self.assertRaisesRegex(RuntimeError, "exactly one ZIP"):
+                    self.resolve(assets=assets)
+
+
+class AttestationTests(unittest.TestCase):
+    def setUp(self):
+        self.archive = Path(tempfile.mkdtemp()) / "cats.zip"
+        self.archive.write_bytes(b"attested bytes")
+
+    def test_verifier_constrains_every_approved_identity(self):
+        self.assertTrue(hasattr(fetch_cats, "verify_attestation"))
+        completed = mock.Mock()
+        with mock.patch.object(
+            fetch_cats.shutil, "which", return_value="/usr/bin/gh"
+        ):
+            with mock.patch.object(
+                fetch_cats.subprocess, "run", return_value=completed
+            ) as run:
+                fetch_cats.verify_attestation(
+                    self.archive,
+                    repository="Alrauna/Cats-Blender-Plugin",
+                    signer_workflow=(
+                        "Alrauna/Cats-Blender-Plugin/"
+                        ".github/workflows/Cats Tests.yml"
+                    ),
+                    source_ref="refs/heads/main",
+                    source_digest="a" * 40,
+                )
+
+        run.assert_called_once_with(
+            [
+                "/usr/bin/gh",
+                "attestation",
+                "verify",
+                str(self.archive),
+                "--repo",
+                "Alrauna/Cats-Blender-Plugin",
+                "--signer-workflow",
+                (
+                    "Alrauna/Cats-Blender-Plugin/"
+                    ".github/workflows/Cats Tests.yml"
+                ),
+                "--source-ref",
+                "refs/heads/main",
+                "--source-digest",
+                "a" * 40,
+                "--deny-self-hosted-runners",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=fetch_cats.ATTESTATION_TIMEOUT_SECONDS,
+        )
+
+    def test_missing_github_cli_fails_closed(self):
+        with mock.patch.object(fetch_cats.shutil, "which", return_value=None):
+            with mock.patch.object(fetch_cats.subprocess, "run") as run:
+                with self.assertRaisesRegex(RuntimeError, "GitHub CLI"):
+                    fetch_cats.verify_attestation(
+                        self.archive,
+                        repository="Alrauna/Cats-Blender-Plugin",
+                        signer_workflow="workflow.yml",
+                        source_ref="refs/heads/main",
+                        source_digest="a" * 40,
+                    )
+        run.assert_not_called()
+
+    def test_verification_failure_is_wrapped_without_process_output(self):
+        failure = fetch_cats.subprocess.CalledProcessError(
+            1,
+            ["gh", "attestation", "verify"],
+            output="sensitive stdout",
+            stderr="sensitive stderr",
+        )
+        with mock.patch.object(
+            fetch_cats.shutil, "which", return_value="/usr/bin/gh"
+        ):
+            with mock.patch.object(
+                fetch_cats.subprocess, "run", side_effect=failure
+            ):
+                try:
+                    fetch_cats.verify_attestation(
+                        self.archive,
+                        repository="Alrauna/Cats-Blender-Plugin",
+                        signer_workflow="workflow.yml",
+                        source_ref="refs/heads/main",
+                        source_digest="a" * 40,
+                    )
+                except Exception as error:
+                    self.assertIs(type(error), RuntimeError)
+                    self.assertEqual(
+                        "CATS build-provenance verification failed", str(error)
+                    )
+                    self.assertNotIn("sensitive", str(error))
+                else:
+                    self.fail("verification failure was accepted")
+
+
+class DynamicIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.archive = make_extension_zip(
+            self.tmp / "cats_blender_plugin-99.4.7.zip",
+            version="99.4.7",
+        )
+
+    def remote_fetch(
+        self,
+        *,
+        tag="v99.4.7",
+        asset_name="cats_blender_plugin-99.4.7.zip",
+        archive=None,
+        allow_drift=False,
+        verifier=None,
+    ):
+        source = archive or self.archive
+
+        def download(_url, output, maximum=fetch_cats.ASSET_MAX_BYTES):
+            del maximum
+            output.write_bytes(source.read_bytes())
+            return output.stat().st_size
+
+        verifier = verifier or mock.Mock()
+        with mock.patch.object(
+            fetch_cats,
+            "resolve_latest",
+            return_value=(
+                tag,
+                asset_name,
+                "https://example.test/cats.zip",
+                source.stat().st_size,
+                "a" * 40,
+            ),
+        ):
+            with mock.patch.object(fetch_cats, "_download", side_effect=download):
+                with mock.patch.object(
+                    fetch_cats, "verify_attestation", side_effect=verifier
+                ):
+                    return fetch_cats.fetch(
+                        self.tmp / f"out-{len(list(self.tmp.iterdir()))}",
+                        None,
+                        allow_drift=allow_drift,
+                    )
+
+    def test_arbitrary_future_version_passes_without_policy_update(self):
+        try:
+            report, exit_code = self.remote_fetch()
+        except Exception as error:
+            self.fail(f"future attested release was not accepted: {error}")
+        self.assertEqual(0, exit_code)
+        self.assertEqual("99.4.7", report["extension_version"])
+        self.assertTrue(report["attestation_verified"])
+
+    def test_attestation_failure_happens_before_untrusted_zip_parsing(self):
+        untrusted = self.tmp / "untrusted.zip"
+        untrusted.write_bytes(b"not a zip")
+
+        def reject(*_args, **_kwargs):
+            raise RuntimeError("untrusted provenance")
+
+        with self.assertRaisesRegex(RuntimeError, "untrusted provenance"):
+            self.remote_fetch(archive=untrusted, verifier=reject)
+
+    def test_allow_drift_cannot_bypass_attestation_failure(self):
+        def reject(*_args, **_kwargs):
+            raise RuntimeError("untrusted provenance")
+
+        with self.assertRaisesRegex(RuntimeError, "untrusted provenance"):
+            self.remote_fetch(allow_drift=True, verifier=reject)
+
+    def test_manifest_tag_and_asset_versions_must_agree(self):
+        for changes in (
+            {"tag": "v99.4.8"},
+            {"asset_name": "cats_blender_plugin-99.4.8.zip"},
+        ):
+            with self.subTest(changes=changes):
+                _, exit_code = self.remote_fetch(**changes)
+                self.assertEqual(1, exit_code)
+
+    def test_remote_manifest_requires_a_nonempty_string_version(self):
+        missing = make_extension_zip(self.tmp / "missing.zip", version="")
+        non_string = self.tmp / "non-string.zip"
+        with zipfile.ZipFile(non_string, "w") as package:
+            package.writestr(
+                "blender_manifest.toml",
+                MANIFEST + "version = 7\n",
+            )
+        for archive in (missing, non_string):
+            with self.subTest(archive=archive.name):
+                report, exit_code = self.remote_fetch(archive=archive)
+                self.assertEqual(1, exit_code)
+                self.assertTrue(
+                    any("valid version" in item for item in report["drift"])
+                )
+
+    def test_wrong_extension_id_always_fails(self):
+        wrong = make_extension_zip(
+            self.tmp / "wrong.zip",
+            extension_id="something_else",
+            version="99.4.7",
+        )
+        _, exit_code = self.remote_fetch(archive=wrong)
+        self.assertEqual(1, exit_code)
+
+
+class LocalArchiveTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.archive = make_extension_zip(self.tmp / "cats.zip")
+
+    def test_explicit_local_archive_is_inspected_without_provenance_claim(self):
+        try:
+            report, exit_code = fetch_cats.fetch(self.tmp / "out", self.archive)
+        except Exception as error:
+            self.fail(f"explicit local archive could not be inspected: {error}")
+        self.assertEqual(0, exit_code)
+        self.assertFalse(report["attestation_verified"])
+        self.assertEqual("cats_blender_plugin", report["extension_id"])
+
+
 class DriftPolicyTests(unittest.TestCase):
-    """Drift fails by default and requires an explicit local override."""
+    """Local files retain integrity facts without becoming trust pins."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.archive = make_extension_zip(self.tmp / "cats.zip")
 
-    def test_hash_drift_fails_by_default(self):
+    def test_local_hash_is_reported_without_being_a_trust_pin(self):
         report, exit_code = fetch_cats.fetch(self.tmp / "o1", self.archive)
-        self.assertEqual(1, exit_code)
-        self.assertTrue(report["drift"])
+        self.assertEqual(0, exit_code)
+        self.assertEqual(
+            hashlib.sha256(self.archive.read_bytes()).hexdigest(),
+            report["extension_sha256"],
+        )
+        self.assertFalse(report["drift"])
         self.assertTrue(report["drift_is_fatal"])
 
-    def test_hash_drift_requires_explicit_allowance(self):
+    def test_allow_drift_does_not_change_local_integrity_facts(self):
         report, exit_code = fetch_cats.fetch(
             self.tmp / "o2", self.archive, allow_drift=True
         )
         self.assertEqual(0, exit_code)
-        self.assertTrue(report["drift"])
-        self.assertFalse(report["drift_is_fatal"])
+        self.assertEqual(
+            hashlib.sha256(self.archive.read_bytes()).hexdigest(),
+            report["extension_sha256"],
+        )
+        self.assertFalse(report["attestation_verified"])
 
     def test_wrong_extension_id_always_fails(self):
         wrong = make_extension_zip(
@@ -188,120 +472,69 @@ class DriftPolicyTests(unittest.TestCase):
         self.assertEqual(1, exit_code)
 
 
-class IntegrityFactsTests(unittest.TestCase):
+class DynamicIntegrityFactsTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.inner = make_extension_zip(self.tmp / "cats_blender_plugin.zip")
         self.wrapper = make_wrapper_zip(
             self.tmp / "release.zip", self.inner.name, self.inner
         )
-        self.reference = {
-            **REFERENCE,
-            "release_tag": "test-release",
-            "asset_name": self.wrapper.name,
-            "asset_sha256": hashlib.sha256(
-                self.wrapper.read_bytes()
-            ).hexdigest(),
-            "asset_size": self.wrapper.stat().st_size,
-            "extension_sha256": hashlib.sha256(
-                self.inner.read_bytes()
-            ).hexdigest(),
-            "extension_size": self.inner.stat().st_size,
-            "extension_version": REFERENCE["extension_version"],
-        }
-        self.reference_path = self.tmp / "reference.json"
 
-    def fetch_local(self, *, allow_drift=False, **changes):
-        reference = {**self.reference, **changes}
-        self.reference_path.write_text(json.dumps(reference), encoding="utf-8")
-        with mock.patch.object(
-            fetch_cats, "REFERENCE_PATH", self.reference_path
-        ):
-            return fetch_cats.fetch(
-                self.tmp / "local-output",
-                self.inner,
-                allow_drift=allow_drift,
-            )
-
-    def test_exact_extension_size_and_version_pass(self):
-        report, exit_code = self.fetch_local()
+    def test_extension_size_hash_and_version_are_reported(self):
+        report, exit_code = fetch_cats.fetch(
+            self.tmp / "local-output", self.inner
+        )
         self.assertEqual(0, exit_code)
         self.assertEqual(self.inner.stat().st_size, report["extension_size"])
         self.assertEqual(
-            REFERENCE["extension_version"], report["extension_version"]
+            hashlib.sha256(self.inner.read_bytes()).hexdigest(),
+            report["extension_sha256"],
         )
+        self.assertEqual(TEST_VERSION, report["extension_version"])
 
-    def test_extension_size_drift_fails_by_default(self):
-        report, exit_code = self.fetch_local(
-            extension_size=self.inner.stat().st_size + 1
-        )
-        self.assertEqual(1, exit_code)
-        self.assertTrue(
-            any("extension size changed" in item for item in report["drift"])
-        )
-
-    def test_extension_size_drift_requires_explicit_allowance(self):
-        report, exit_code = self.fetch_local(
-            allow_drift=True,
-            extension_size=self.inner.stat().st_size + 1,
-        )
-        self.assertEqual(0, exit_code)
-        self.assertFalse(report["drift_is_fatal"])
-
-    def test_extension_version_drift_fails_by_default(self):
-        report, exit_code = self.fetch_local(extension_version="0.0.0")
-        self.assertEqual(1, exit_code)
-        self.assertTrue(
-            any(
-                "extension version changed" in item
-                for item in report["drift"]
-            )
-        )
+    def remote_fetch(self, *, published_size, allow_drift=False):
+        asset = self.wrapper.read_bytes()
+        with mock.patch.object(
+            fetch_cats,
+            "resolve_latest",
+            return_value=(
+                f"v{TEST_VERSION}",
+                f"cats_blender_plugin-{TEST_VERSION}.zip",
+                "https://cdn.example/release.zip",
+                published_size,
+                "a" * 40,
+            ),
+        ):
+            with mock.patch.object(fetch_cats, "_download") as download:
+                download.side_effect = lambda _url, path: path.write_bytes(asset)
+                with mock.patch.object(fetch_cats, "verify_attestation"):
+                    return fetch_cats.fetch(
+                        self.tmp / f"remote-{allow_drift}",
+                        None,
+                        allow_drift=allow_drift,
+                    )
 
     def test_published_and_downloaded_asset_sizes_are_verified(self):
-        asset = self.wrapper.read_bytes()
-        published_size = len(asset) + 1
-        reference = {**self.reference, "asset_size": published_size}
-        self.reference_path.write_text(json.dumps(reference), encoding="utf-8")
-        api_payload = json.dumps(
-            {
-                "tag_name": reference["release_tag"],
-                "assets": [
-                    {
-                        "name": reference["asset_name"],
-                        "browser_download_url": "https://cdn.example/release.zip",
-                        "size": published_size,
-                    }
-                ],
-            }
-        ).encode()
-        responses = iter(
-            (
-                FakeResponse(api_payload, "https://api.github.com/release"),
-                FakeResponse(asset, "https://cdn.example/release.zip"),
-            )
-        )
-        with mock.patch.object(
-            fetch_cats, "REFERENCE_PATH", self.reference_path
-        ):
-            with mock.patch.object(
-                fetch_cats.urllib.request,
-                "urlopen",
-                side_effect=lambda *_args, **_kwargs: next(responses),
-            ):
-                report, exit_code = fetch_cats.fetch(
-                    self.tmp / "remote-output", None
-                )
+        asset_size = self.wrapper.stat().st_size
+        report, exit_code = self.remote_fetch(published_size=asset_size + 1)
 
         self.assertEqual(1, exit_code)
-        self.assertEqual(len(asset), report["asset_size"])
+        self.assertEqual(asset_size, report["asset_size"])
         self.assertTrue(
             any(
-                "downloaded asset size changed" in item
+                "does not match published size" in item
                 for item in report["drift"]
             )
         )
         self.assertTrue(report["drift"])
+        self.assertTrue(report["drift_is_fatal"])
+
+    def test_allow_drift_cannot_bypass_size_mismatch(self):
+        report, exit_code = self.remote_fetch(
+            published_size=self.wrapper.stat().st_size + 1,
+            allow_drift=True,
+        )
+        self.assertEqual(1, exit_code)
         self.assertTrue(report["drift_is_fatal"])
 
 class GithubOutputTests(unittest.TestCase):
@@ -357,16 +590,22 @@ class ApiTokenTests(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         inner = tmp / "cats_blender_plugin.zip"
         with zipfile.ZipFile(inner, "w") as package:
-            package.writestr("blender_manifest.toml", MANIFEST)
+            package.writestr(
+                "blender_manifest.toml",
+                MANIFEST + f'version = "{TEST_VERSION}"\n',
+            )
             package.writestr("payload.bin", os.urandom(1 * 1024 * 1024 + 1))
         wrapper = make_wrapper_zip(tmp / "release.zip", inner.name, inner)
         asset = wrapper.read_bytes()
         api_payload = json.dumps(
             {
-                "tag_name": "test-release",
+                "tag_name": f"v{TEST_VERSION}",
+                "draft": False,
+                "prerelease": False,
+                "target_commitish": "a" * 40,
                 "assets": [
                     {
-                        "name": "release.zip",
+                        "name": f"cats_blender_plugin-{TEST_VERSION}.zip",
                         "browser_download_url": "https://cdn.example/release.zip",
                         "size": len(asset),
                     }
@@ -388,9 +627,10 @@ class ApiTokenTests(unittest.TestCase):
                 "urlopen",
                 side_effect=open_request,
             ):
-                _, exit_code = fetch_cats.fetch(
-                    tmp / "out", None, allow_drift=True
-                )
+                with mock.patch.object(fetch_cats, "verify_attestation"):
+                    _, exit_code = fetch_cats.fetch(
+                        tmp / "out", None, allow_drift=True
+                    )
 
         self.assertEqual(0, exit_code)
         self.assertEqual("Bearer t0ken", requests[0].get_header("Authorization"))
@@ -402,25 +642,28 @@ class ReferenceFileTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.archive = make_extension_zip(self.tmp / "cats.zip")
 
-    def test_reference_records_integrity_facts(self):
-        for key in (
-            "repository",
+    def test_policy_contains_identity_but_no_release_pin(self):
+        self.assertEqual(
+            "Alrauna/Cats-Blender-Plugin", REFERENCE["repository"]
+        )
+        self.assertEqual(
+            "Alrauna/Cats-Blender-Plugin/.github/workflows/Cats Tests.yml",
+            REFERENCE.get("signer_workflow"),
+        )
+        self.assertEqual("refs/heads/main", REFERENCE.get("source_ref"))
+        self.assertEqual("cats_blender_plugin", REFERENCE["extension_id"])
+        release_pin_keys = {
             "release_tag",
             "asset_name",
             "asset_sha256",
             "asset_size",
-            "extension_id",
-            "extension_zip_name",
             "extension_sha256",
             "extension_size",
             "extension_version",
-        ):
-            self.assertIn(key, REFERENCE)
-        for key in ("asset_sha256", "extension_sha256"):
-            self.assertRegex(REFERENCE[key], r"\A[0-9a-f]{64}\Z")
-        for key in ("asset_size", "extension_size"):
-            self.assertIsInstance(REFERENCE[key], int)
-            self.assertGreater(REFERENCE[key], 0)
+            "source_digest",
+            "signer_digest",
+        }
+        self.assertTrue(release_pin_keys.isdisjoint(REFERENCE))
 
     def test_legacy_strict_flag_is_still_accepted(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):

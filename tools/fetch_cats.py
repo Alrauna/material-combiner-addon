@@ -20,7 +20,9 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tomllib
 import urllib.request
@@ -31,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_PATH = ROOT / "tools" / "cats_reference.json"
 API = "https://api.github.com/repos/{repository}/releases/latest"
 TIMEOUT_SECONDS = 120
+ATTESTATION_TIMEOUT_SECONDS = 120
 USER_AGENT = "material-combiner-addon-ci"
 API_MAX_BYTES = 1 * 1024 * 1024
 ASSET_MAX_BYTES = 64 * 1024 * 1024
@@ -135,7 +138,7 @@ def _download(
         raise
 
 
-def resolve_latest(repository: str) -> tuple[str, str, str, int]:
+def resolve_latest(repository: str) -> tuple[str, str, str, int, str]:
     """Return the latest release tag and ZIP asset facts."""
     payload = json.loads(
         _get(
@@ -144,6 +147,13 @@ def resolve_latest(repository: str) -> tuple[str, str, str, int]:
             token=api_token(),
         )
     )
+    if payload.get("draft") is not False or payload.get("prerelease") is not False:
+        raise RuntimeError("Latest release is not final")
+    source_digest = payload.get("target_commitish")
+    if not isinstance(source_digest, str) or re.fullmatch(
+        r"[0-9a-fA-F]{40}", source_digest
+    ) is None:
+        raise RuntimeError("Latest release target is not an exact commit")
     assets = [
         asset
         for asset in payload.get("assets", [])
@@ -162,7 +172,47 @@ def resolve_latest(repository: str) -> tuple[str, str, str, int]:
         asset["name"],
         asset["browser_download_url"],
         size,
+        source_digest.lower(),
     )
+
+
+def verify_attestation(
+    archive: Path,
+    *,
+    repository: str,
+    signer_workflow: str,
+    source_ref: str,
+    source_digest: str,
+) -> None:
+    executable = shutil.which("gh")
+    if executable is None:
+        raise RuntimeError("GitHub CLI is required to verify CATS provenance")
+    try:
+        subprocess.run(
+            [
+                executable,
+                "attestation",
+                "verify",
+                str(archive),
+                "--repo",
+                repository,
+                "--signer-workflow",
+                signer_workflow,
+                "--source-ref",
+                source_ref,
+                "--source-digest",
+                source_digest,
+                "--deny-self-hosted-runners",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=ATTESTATION_TIMEOUT_SECONDS,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(
+            "CATS build-provenance verification failed"
+        ) from error
 
 
 def unwrap(archive: Path, expected_name: str, output_dir: Path) -> Path:
@@ -234,47 +284,41 @@ def fetch(
     reference = json.loads(REFERENCE_PATH.read_text(encoding="utf-8"))
     output_dir.mkdir(parents=True, exist_ok=True)
     drift: list[str] = []
+    attestation_verified = False
+    source_digest = None
 
     if archive is not None:
         asset_path = archive
+        asset_name = archive.name
         tag = "(local archive)"
         published_asset_size = None
     else:
-        tag, asset_name, url, published_asset_size = resolve_latest(
-            reference["repository"]
-        )
-        if tag != reference["release_tag"]:
-            drift.append(
-                f"release tag moved: recorded {reference['release_tag']}, "
-                f"published {tag}"
-            )
-        if asset_name != reference["asset_name"]:
-            drift.append(
-                f"asset renamed: recorded {reference['asset_name']}, "
-                f"published {asset_name}"
-            )
-        if published_asset_size != reference["asset_size"]:
-            drift.append(
-                f"published asset size changed: recorded "
-                f"{reference['asset_size']}, published "
-                f"{published_asset_size}"
-            )
+        (
+            tag,
+            asset_name,
+            url,
+            published_asset_size,
+            source_digest,
+        ) = resolve_latest(reference["repository"])
         # asset_name comes from the API response, so keep it to a bare
         # filename rather than trusting it to be path-safe.
         asset_path = output_dir / Path(asset_name).name
         _download(url, asset_path)
+        verify_attestation(
+            asset_path,
+            repository=reference["repository"],
+            signer_workflow=reference["signer_workflow"],
+            source_ref=reference["source_ref"],
+            source_digest=source_digest,
+        )
+        attestation_verified = True
 
     asset_size = asset_path.stat().st_size
     asset_sha256 = sha256_file(asset_path)
-    if archive is None and asset_size != reference["asset_size"]:
+    if archive is None and asset_size != published_asset_size:
         drift.append(
-            f"downloaded asset size changed: recorded "
-            f"{reference['asset_size']}, downloaded {asset_size}"
-        )
-    if archive is None and asset_sha256 != reference["asset_sha256"]:
-        drift.append(
-            f"asset sha256 changed: recorded {reference['asset_sha256']}, "
-            f"downloaded {asset_sha256}"
+            f"downloaded asset size {asset_size} does not match published "
+            f"size {published_asset_size}"
         )
 
     extension = unwrap(
@@ -282,37 +326,39 @@ def fetch(
     )
     extension_size = extension.stat().st_size
     extension_sha256 = sha256_file(extension)
-    if extension_size != reference["extension_size"]:
-        drift.append(
-            f"extension size changed: recorded "
-            f"{reference['extension_size']}, got {extension_size}"
-        )
-    if extension_sha256 != reference["extension_sha256"]:
-        drift.append(
-            "extension sha256 changed: recorded "
-            f"{reference['extension_sha256']}, got {extension_sha256}"
-        )
 
     manifest = extension_manifest_of(extension)
     actual_id = manifest.get("id") if manifest is not None else None
     actual_version = (
         manifest.get("version") if manifest is not None else None
     )
-    if actual_version != reference["extension_version"]:
-        drift.append(
-            f"extension version changed: recorded "
-            f"{reference['extension_version']!r}, got {actual_version!r}"
-        )
-    fatal = actual_id != reference["extension_id"]
-    if fatal:
+    if actual_id != reference["extension_id"]:
         drift.append(
             f"extension id is {actual_id!r}, expected "
             f"{reference['extension_id']!r}"
         )
+    if archive is None and (
+        not isinstance(actual_version, str) or not actual_version
+    ):
+        drift.append("extension manifest has no valid version")
+    if archive is None and isinstance(actual_version, str) and actual_version:
+        expected_tag = f"v{actual_version}"
+        expected_asset_name = f"cats_blender_plugin-{actual_version}.zip"
+        if tag != expected_tag:
+            drift.append(
+                f"release tag is {tag!r}, expected {expected_tag!r}"
+            )
+        if asset_name != expected_asset_name:
+            drift.append(
+                f"asset name is {asset_name!r}, expected "
+                f"{expected_asset_name!r}"
+            )
 
     report = {
         "repository": reference["repository"],
         "release_tag": tag,
+        "source_digest": source_digest,
+        "attestation_verified": attestation_verified,
         "asset": str(asset_path),
         "asset_size": asset_size,
         "published_asset_size": published_asset_size,
@@ -323,13 +369,9 @@ def fetch(
         "extension_id": actual_id,
         "extension_version": actual_version,
         "drift": drift,
-        "drift_is_fatal": not allow_drift,
+        "drift_is_fatal": True,
     }
-    # A wrong extension id always fails: the checkpoint cannot enable it, so
-    # continuing would only produce a confusing downstream error.
-    if fatal:
-        return report, 1
-    if drift and not allow_drift:
+    if drift:
         return report, 1
     return report, 0
 
@@ -346,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
     policy.add_argument(
         "--strict",
         action="store_true",
-        help="Require the pinned CATS reference (the default; retained for compatibility).",
+        help="Require attested CATS provenance (retained for compatibility).",
     )
     policy.add_argument(
         "--allow-drift",
@@ -359,6 +401,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Append the unwrapped extension path for a later CI step.",
     )
     arguments = parser.parse_args(argv)
+
+    if arguments.strict and arguments.archive is not None:
+        print(
+            "error: strict provenance cannot be established for a local archive",
+            file=sys.stderr,
+        )
+        return 1
 
     report, exit_code = fetch(
         arguments.output_dir,
