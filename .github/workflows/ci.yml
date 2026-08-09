@@ -322,23 +322,26 @@ jobs:
           --version "$RELEASE_VERSION"
           --manifest addon/blender_manifest.toml
 
-  # One job for both, deliberately. A dry run that took a separate path would
-  # rehearse something other than the real release and prove nothing about it,
-  # so the same steps run either way and only the publishing ones are skipped.
-  # Real publishes stay on master; a dry run may be exercised from any branch,
-  # which is how this job gets tested without cutting a release.
-  release:
-    name: Release (publish or dry run)
+  # Build the exact release bytes once with read-only repository access. Both
+  # attestation and publication consume this current-run artifact and verify
+  # it independently. Dry runs stop after this job.
+  release_package:
+    name: Package release
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.release != '' &&
-      (inputs.dry_run || github.ref == 'refs/heads/master')
+      (inputs.dry_run ||
+       (github.ref == 'refs/heads/master' &&
+        github.event.repository.visibility == 'public'))
     needs: [validate, release_gate]
     runs-on: windows-2025
     timeout-minutes: 45
-    environment: release
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      archives: ${{ steps.release.outputs.archives }}
+      checksums_sha256: ${{ steps.release.outputs.checksums_sha256 }}
     env:
       RELEASE_VERSION: ${{ inputs.release }}
     steps:
@@ -408,96 +411,18 @@ jobs:
           --checksum-output '${{ runner.temp }}/release/SHA256SUMS.txt'
           --github-output "$GITHUB_OUTPUT"
 
-      - name: Refuse an existing tag or release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            echo "tag already exists: $TAG" >&2
-            exit 1
-          fi
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "release already exists: $TAG" >&2
-            exit 1
-          fi
-
-      # Everything above this point runs identically for a dry run. Only the
-      # four steps below touch the repository, and each is skipped.
-      - name: Create a draft release
-        if: ${{ !inputs.dry_run }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: >-
-          gh release create "$TAG" --repo "${{ github.repository }}"
-          --draft --generate-notes --title "$TAG"
-          --target "${{ github.sha }}"
-
-      - name: Upload the archives and checksums
-        if: ${{ !inputs.dry_run }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          gh release upload "$TAG" --repo "${{ github.repository }}" \
-            "${{ runner.temp }}"/release/*.zip \
-            "${{ runner.temp }}/release/SHA256SUMS.txt"
-
-      # Verify what the release actually stores, not what was uploaded. A
-      # draft that fails this is never published.
-      - name: Download and verify the stored archives
-        if: ${{ !inputs.dry_run }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ARCHIVES: ${{ steps.release.outputs.archives }}
-        run: |
-          set -euo pipefail
-          stored="${{ runner.temp }}/stored"
-          mkdir -p "$stored"
-          gh release download "$TAG" --repo "${{ github.repository }}" \
-            --pattern '*.zip' --dir "$stored"
-          for name in $ARCHIVES; do
-            expected=$(awk -v n="$name" '$2 == n {print $1}' \
-              "${{ runner.temp }}/release/SHA256SUMS.txt")
-            if [ -z "$expected" ]; then
-              echo "no checksum recorded for $name" >&2
-              exit 1
-            fi
-            python tools/ci.py verify-file \
-              --file "$stored/$name" --expected-sha256 "$expected"
-          done
-
-      - name: Publish the verified draft
-        if: ${{ !inputs.dry_run }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: >-
-          gh release edit "$TAG" --repo "${{ github.repository }}"
-          --draft=false
-
-      # A dry run produces the same archives a publish would; uploading them
-      # is what makes the rehearsal inspectable rather than merely green.
-      # actions/upload-artifact v4.6.2.
-      - name: Upload the rehearsed release for inspection
-        if: ${{ inputs.dry_run }}
+      # The fixed name and current run ID bind downstream consumers to this
+      # job. ZIPs are already compressed, so artifact compression is disabled.
+      - name: Upload the release package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: dry-run-${{ steps.release.outputs.tag }}
+          name: material-combiner-release-package
           path: |
             ${{ runner.temp }}/release/*.zip
             ${{ runner.temp }}/release/SHA256SUMS.txt
-          retention-days: 7
           if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
       - name: Summarise the dry run
         if: ${{ inputs.dry_run }}
@@ -515,3 +440,202 @@ jobs:
             cat "${{ runner.temp }}/release/SHA256SUMS.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  release_attestation:
+    name: Attest verified release package
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release != '' &&
+      !inputs.dry_run &&
+      github.ref == 'refs/heads/master' &&
+      github.event.repository.visibility == 'public'
+    needs: [release_package]
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_ARTIFACT_NAME: material-combiner-release-package
+      ARCHIVES: ${{ needs.release_package.outputs.archives }}
+      EXPECTED_CHECKSUMS_SHA256: ${{ needs.release_package.outputs.checksums_sha256 }}
+    steps:
+      - name: Download and verify the current-run release package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          download="${{ runner.temp }}/downloaded-release"
+          mkdir -p "$download"
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name "$RELEASE_ARTIFACT_NAME" \
+            --dir "$download"
+          shopt -s nullglob dotglob
+          entries=("$download"/*)
+          if [ "${#entries[@]}" -ne 5 ]; then
+            echo "expected exactly five release package files" >&2
+            exit 1
+          fi
+          for entry in "${entries[@]}"; do
+            if [ ! -f "$entry" ]; then
+              echo "release package contains a non-file entry" >&2
+              exit 1
+            fi
+          done
+          for name in $ARCHIVES; do
+            if [ ! -f "$download/$name" ]; then
+              echo "release package is missing $name" >&2
+              exit 1
+            fi
+          done
+          checksums="$download/SHA256SUMS.txt"
+          if [ ! -f "$checksums" ]; then
+            echo "release package is missing SHA256SUMS.txt" >&2
+            exit 1
+          fi
+          actual=$(sha256sum "$checksums" | awk '{print $1}')
+          if [ "$actual" != "$EXPECTED_CHECKSUMS_SHA256" ]; then
+            echo "release checksum manifest digest mismatch" >&2
+            exit 1
+          fi
+          (cd "$download" && sha256sum --check SHA256SUMS.txt)
+
+      - name: Attest all verified extension ZIPs
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: '${{ runner.temp }}/downloaded-release/*.zip'
+
+  release_publish:
+    name: Publish attested release
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release != '' &&
+      !inputs.dry_run &&
+      github.ref == 'refs/heads/master' &&
+      github.event.repository.visibility == 'public'
+    needs: [release_package, release_attestation]
+    runs-on: windows-2025
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    env:
+      RELEASE_ARTIFACT_NAME: material-combiner-release-package
+      TAG: ${{ needs.release_package.outputs.tag }}
+      ARCHIVES: ${{ needs.release_package.outputs.archives }}
+      EXPECTED_CHECKSUMS_SHA256: ${{ needs.release_package.outputs.checksums_sha256 }}
+    steps:
+      - name: Download and verify the attested release package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          download="${{ runner.temp }}/downloaded-release"
+          mkdir -p "$download"
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name "$RELEASE_ARTIFACT_NAME" \
+            --dir "$download"
+          shopt -s nullglob dotglob
+          entries=("$download"/*)
+          if [ "${#entries[@]}" -ne 5 ]; then
+            echo "expected exactly five release package files" >&2
+            exit 1
+          fi
+          for entry in "${entries[@]}"; do
+            if [ ! -f "$entry" ]; then
+              echo "release package contains a non-file entry" >&2
+              exit 1
+            fi
+          done
+          for name in $ARCHIVES; do
+            if [ ! -f "$download/$name" ]; then
+              echo "release package is missing $name" >&2
+              exit 1
+            fi
+          done
+          checksums="$download/SHA256SUMS.txt"
+          if [ ! -f "$checksums" ]; then
+            echo "release package is missing SHA256SUMS.txt" >&2
+            exit 1
+          fi
+          actual=$(sha256sum "$checksums" | awk '{print $1}')
+          if [ "$actual" != "$EXPECTED_CHECKSUMS_SHA256" ]; then
+            echo "release checksum manifest digest mismatch" >&2
+            exit 1
+          fi
+          (cd "$download" && sha256sum --check SHA256SUMS.txt)
+
+      - name: Refuse an existing tag or release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag already exists: $TAG" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "release already exists: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Create a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$TAG" --repo "${{ github.repository }}"
+          --draft --generate-notes --title "$TAG"
+          --target "${{ github.sha }}"
+
+      - name: Upload the archives and checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "${{ github.repository }}" \
+            "${{ runner.temp }}"/downloaded-release/*.zip \
+            "${{ runner.temp }}/downloaded-release/SHA256SUMS.txt"
+
+      # Verify what the release actually stores, not what was uploaded. A
+      # draft that fails this is never published.
+      - name: Download and verify the stored archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          stored="${{ runner.temp }}/stored"
+          mkdir -p "$stored"
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern '*.zip' --dir "$stored"
+          for name in $ARCHIVES; do
+            expected=$(awk -v n="$name" '$2 == n {print $1}' \
+              "${{ runner.temp }}/downloaded-release/SHA256SUMS.txt")
+            if [ -z "$expected" ]; then
+              echo "no checksum recorded for $name" >&2
+              exit 1
+            fi
+            actual=$(sha256sum "$stored/$name" | awk '{print $1}')
+            if [ "$actual" != "$expected" ]; then
+              echo "stored release archive hash mismatch: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Publish the verified and attested draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release edit "$TAG" --repo "${{ github.repository }}"
+          --draft=false
