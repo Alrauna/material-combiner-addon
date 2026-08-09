@@ -15,12 +15,24 @@ an absolute Windows filename containing backslashes, so `awk` returns a
 65-character escaped field. The same defect affects both artifact-consumer
 checks and stored-release ZIP verification.
 
-The approved fix is limited to hashing from each containing directory with
-relative filenames. It preserves the exact inventory, checksum, permission,
-attestation, publication-order, and stored-byte gates. The design and plan are
-in `docs/superpowers/specs/2026-08-09-windows-release-checksum-path.md` and
-`docs/superpowers/plans/2026-08-09-windows-release-checksum-path.md` while the
-milestone is in flight.
+The implemented fix hashes from each containing directory with relative
+filenames in both artifact consumers and stored-release ZIP verification. It
+preserves the exact inventory, checksum, permission, attestation,
+publication-order, and stored-byte gates. A focused regression failed twice
+against the absolute-path commands and all seven workflow contracts pass after
+the three substitutions.
+
+Fresh validation: 110 unit tests pass with the three existing platform skips;
+Ruff, bundled-wheel verification, and `git diff --check` pass. A Git Bash
+reproduction against the failed run's downloaded artifact proves both old
+absolute-path commands return a leading `\` and length 65, while both new
+relative-path commands return the unchanged 64-hex manifest and ZIP digests.
+
+After merge, start a new non-dry-run 3.1.1 dispatch from protected `master`.
+That is the hosted acceptance test for the corrected attestation and
+publication jobs; rerunning 31317909983 would execute its old commit. The
+design and plan remain in `docs/superpowers/` only until this milestone's final
+commit, then Git history retains them.
 
 ## Completed release-attestation branch
 
