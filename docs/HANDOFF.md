@@ -1,6 +1,28 @@
 # Handoff
 
-## Active release-attestation branch
+## Active Windows release checksum fix
+
+`codex/windows-release-checksum-path` starts from current `master` at
+`5cc7534`. Release run 31317909983 built and uploaded the exact five-file
+3.1.1 handoff, then failed safely before attestation with `release checksum
+manifest digest mismatch`; publication was skipped and no `v3.1.1` tag or
+release exists.
+
+The downloaded manifest is intact and hashes to the expected
+`cef974c759a85c44a9d99d8f03408089e05cf053047060f31bf57017585d0b87`.
+Git Bash reproduces the root cause: GNU `sha256sum` prefixes `\` when printing
+an absolute Windows filename containing backslashes, so `awk` returns a
+65-character escaped field. The same defect affects both artifact-consumer
+checks and stored-release ZIP verification.
+
+The approved fix is limited to hashing from each containing directory with
+relative filenames. It preserves the exact inventory, checksum, permission,
+attestation, publication-order, and stored-byte gates. The design and plan are
+in `docs/superpowers/specs/2026-08-09-windows-release-checksum-path.md` and
+`docs/superpowers/plans/2026-08-09-windows-release-checksum-path.md` while the
+milestone is in flight.
+
+## Completed release-attestation branch
 
 `codex/cats-update-policy-3.1.1` starts from merged `master` at `441a93c`.
 The requested scope is to make normal CI consume new upstream CATS releases
