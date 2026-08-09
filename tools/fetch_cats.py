@@ -1,15 +1,16 @@
-"""Resolve, download, and verify the CATS extension used by the checkpoint.
+"""Resolve, attest, and normalize the CATS extension used by the checkpoint.
 
-The published release asset is a wrapper: a ZIP whose only entry is the
-installable extension ZIP. Blender cannot install the wrapper, so it is
-unwrapped here and the inner archive is what the runner consumes.
+Remote mode downloads the latest final release and requires the official
+GitHub CLI to verify its approved build provenance before the ZIP is parsed.
+Both direct Blender extension ZIPs and legacy single-inner-ZIP wrappers are
+accepted; the normalized extension archive is what the runner consumes.
 
-Reference drift fails by default. Use --allow-drift only for deliberate local
-inspection of an unpinned CATS release.
+Local --archive mode is explicitly unattested. The legacy --strict and
+--allow-drift spellings remain accepted, but no option bypasses remote
+attestation or dynamic identity checks.
 
 Examples:
     python tools/fetch_cats.py --output-dir build/cats
-    python tools/fetch_cats.py --output-dir build/cats --allow-drift
     python tools/fetch_cats.py --output-dir build/cats --archive local.zip
 """
 
@@ -393,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     policy.add_argument(
         "--allow-drift",
         action="store_true",
-        help="Allow an unpinned CATS release for deliberate local inspection.",
+        help="Retained for local compatibility; cannot bypass remote checks.",
     )
     parser.add_argument(
         "--github-output",

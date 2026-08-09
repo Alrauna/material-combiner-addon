@@ -1,6 +1,6 @@
 # Handoff
 
-## Active CATS update-policy branch
+## Active release-attestation branch
 
 `codex/cats-update-policy-3.1.1` starts from merged `master` at `441a93c`.
 The requested scope is to make normal CI consume new upstream CATS releases
@@ -49,23 +49,25 @@ Local GitHub CLI 2.97.0 finds the public provenance records but currently
 fails cryptographic verification with `Error: verifying with issuer
 "sigstore.dev"`. The implementation must use the official verifier without a
 fallback; a GitHub-hosted run is therefore a blocking acceptance gate. No
-version metadata changes have been made on this branch yet.
+fallback; a GitHub-hosted run is therefore a blocking acceptance gate.
 
-Planning artifacts were committed as `be69387`. Test-first implementation is
-in progress and uncommitted: moving release metadata and the exact official
-`gh attestation verify` argument policy have RED/GREEN coverage, as do arbitrary
-future versions, attestation-before-ZIP parsing, non-bypassable attestation
-failure, dynamic tag/name/manifest agreement, and explicit unattested local
-archives. The fetcher now uses those behaviors, but the complete fetcher suite
-cannot be green until obsolete pin-specific tests are resolved.
+Planning artifacts were committed as `be69387` and expanded for producer-side
+attestation in `8045189`. The no-pin CATS consumer is committed as `06c4d45`:
+36 focused tests pass for moving release metadata, the exact official
+`gh attestation verify` argument policy, arbitrary future versions,
+attestation-before-ZIP parsing, non-bypassable provenance and transport-size
+failures, dynamic tag/name/manifest agreement, bounds, token isolation,
+same-file hashes, and explicitly unattested local archives. Obsolete snapshot
+assertions were replaced only where a committed release pin no longer exists.
 
-Two attempts to convert the old committed extension-size/version/hash drift
-tests into dynamic integrity, provenance-bypass, and published/downloaded-size
-tests were rejected as potential test weakening. The user has now explicitly
-approved replacing those obsolete pin expectations while retaining the
-underlying bounds, same-file SHA-256, extension identity, mismatch-failure, and
-unchanged Blender compatibility coverage. Workflow contract tests must be
-added before splitting the release jobs.
+The Material Combiner producer pipeline is committed as `f30733d`. A new
+workflow contract suite proves the package/attestation/publish dependency,
+least-privilege permissions, exact five-file current-run handoff, checksum
+manifest binding, SHA-pinned official action, dry-run boundary, and publication
+ordering. Those contracts plus the existing release, DNS-parser, three-resolver
+consensus, and committed Blender checksum-pin tests pass: 42 tests total.
+Focused Ruff checks pass. The manifest and development target are now 3.1.1;
+full repository, Blender, live CATS, and hosted CI validation remain.
 
 ## Completed security-hardening branch
 
@@ -139,27 +141,29 @@ version the manifest does not declare, and the tag check refuses one that
 already exists.
 
 Then rehearse. Run the CI workflow with `release` set to the new version and
-`dry_run` ticked. That performs the entire release except the four steps that
-touch the repository: it fetches the exact commit, rebuilds, validates every
-archive, computes checksums, and confirms the tag is still free, then uploads
-the archives it would have published as an artefact and prints their hashes
-in the run summary. No tag, no release. A dry run may be started from any
-branch, so the release path can be exercised without cutting anything.
+`dry_run` ticked. The read-only package job fetches the exact commit, rebuilds,
+validates every archive, computes checksums, and uploads the exact five-file
+handoff artifact while printing its hashes in the run summary. No attestation,
+tag, or release is created. A dry run may be started from any branch, so the
+packaging path can be exercised without cutting anything.
 
 Then run it again with `dry_run` unticked, on `master`, to publish.
 
-Both halves are verified: the dry run was exercised end to end on a scratch
-branch with a bumped version, producing all four archives and their checksums
-while creating no tag and no release, and the publishing half produced
-v3.1.0.
+The predecessor workflow's dry-run and publishing paths produced v3.1.0. The
+new privilege-separated attestation path still requires hosted acceptance for
+3.1.1 before it can be described as proven.
 
 Leaving `release` empty runs validation only.
 
-The release job refuses to publish unless validation passed on the same
-commit, the manifest declares the requested version, and the tag and release
-do not already exist. It creates a draft, uploads four archives and
-`SHA256SUMS.txt`, downloads what the release actually stored, verifies every
-hash, and only then publishes. A draft that fails verification stays a draft.
+For a real public-master dispatch, an isolated OIDC job downloads the current-
+run artifact, rejects missing or extra files, verifies the checksum manifest
+and all four ZIPs, and attests the ZIPs with the pinned official GitHub action.
+Only the dependent protected publish job has release-write permission. It
+independently verifies the same artifact, refuses an existing tag or release,
+creates a draft, uploads the four ZIPs and `SHA256SUMS.txt`, downloads what the
+release actually stored, verifies every hash, and only then publishes. A failed
+attestation prevents publication; a draft that fails stored-byte verification
+stays a draft.
 
 ## Branch protection
 
@@ -194,8 +198,10 @@ hour of protection being applied.
 - macOS means Apple Silicon. Blender 5.2 publishes no macOS Intel build, so
   there is nothing for an Intel Mac to run and no Intel wheel is packaged.
   Blender does publish windows-arm64, which this package does not target.
-- CATS drift now fails by default in CI and local runs. `--allow-drift` is only
-  for deliberate local inspection and must not be used by the checkpoint.
+- Remote CATS downloads require the approved GitHub attestation and dynamic
+  tag/name/manifest agreement. `--allow-drift` cannot bypass those checks.
+  Local `--archive` inspection is explicitly unattested, and strict local mode
+  fails rather than claiming provenance.
 
 ## Maintenance notes
 

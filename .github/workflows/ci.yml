@@ -243,16 +243,18 @@ jobs:
           run_split dependency --script tests/blender/verify_packaged_dependency.py --result r.json
           run_split atlas      --script tests/blender/verify_atlas_workflows.py     --result r.json
 
-      # --strict: locally, CATS drift only warns so developers are not blocked.
-      # In CI the pin is the only control over which build gets executed, so
-      # drift must stop the build.
+      # The fetcher accepts the latest final CATS release only after the
+      # official GitHub CLI verifies the repository, signer workflow, main
+      # ref, exact release commit, and GitHub-hosted runner provenance. The
+      # retained --strict spelling is compatibility-neutral; it cannot bypass
+      # or weaken attestation.
       #
       # GH_TOKEN authenticates the release lookup. Anonymous API access is 60
       # requests an hour per IP and hosted runners share egress addresses, so
       # without it the step fails intermittently with a 403. The token reaches
       # api.github.com only; fetch_cats refuses to attach it to the asset
       # download, which redirects to a CDN.
-      - name: Fetch and verify CATS
+      - name: Fetch and attest CATS
         id: cats
         shell: bash
         env:
@@ -296,8 +298,8 @@ jobs:
 
   # Checks the requested version before anything is built, so a mismatch
   # fails in seconds rather than after a full validation run.
-  # This condition must match the release job's. The release job needs this
-  # one, and a skipped dependency skips the dependent, so a gate that refuses
+  # This condition must match the package job's. The package job needs this
+  # one, and a skipped dependency skips it, so a gate that refuses
   # to run off master would silently skip every dry run from a branch.
   release_gate:
     name: Release input gate

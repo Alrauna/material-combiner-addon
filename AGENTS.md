@@ -3,7 +3,7 @@
 This repository contains Shotariya's Material Combiner, a Blender extension
 for combining material textures into atlases to reduce draw calls.
 
-The current development target is the 3.1.0 release for Blender 5.2 LTS on
+The current development target is the 3.1.1 release for Blender 5.2 LTS on
 Windows x64, Linux x64, and macOS arm64. The extension bundles one reviewed Pillow wheel per
 platform through Blender's extension wheel mechanism. Other Blender versions
 or platforms are not supported unless they are separately validated and the
@@ -245,9 +245,12 @@ Linux:
   dependency, and atlas checks.
 - `package` mode for an installed extension package.
 - `checkpoint` mode for approved CATS integration, restart, and uninstall
-  checks. Obtain the CATS archive with `tools/fetch_cats.py`, which unwraps
-  the published release asset and reports hash drift. Drift warns rather than
-  fails until the CATS repository adopts matching release automation.
+  checks. Obtain the CATS archive with `tools/fetch_cats.py`, which accepts the
+  latest final release only after the official GitHub CLI verifies its build
+  provenance against the approved repository, signer workflow, `main` ref,
+  exact release commit, and GitHub-hosted runner policy. No CATS release
+  version or artifact hash is pinned; the unchanged checkpoint determines API
+  compatibility.
 
 The atlas undo and repeatability check needs `source --foreground`. In
 background mode it reports that it requires a foreground context instead of
