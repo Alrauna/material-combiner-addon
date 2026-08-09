@@ -67,7 +67,36 @@ manifest binding, SHA-pinned official action, dry-run boundary, and publication
 ordering. Those contracts plus the existing release, DNS-parser, three-resolver
 consensus, and committed Blender checksum-pin tests pass: 42 tests total.
 Focused Ruff checks pass. The manifest and development target are now 3.1.1;
-full repository, Blender, live CATS, and hosted CI validation remain.
+local preservation validation is recorded below, and hosted CI remains.
+
+Fresh local validation after all implementation commits:
+
+- `python -m unittest discover -s tests/unit -p "test_*.py"`: 109 tests
+  passed with the same three expected Windows skips for POSIX display handling.
+- Repository-wide Ruff and `git diff --check` passed. All three bundled Pillow
+  wheels passed hash, platform, metadata, license, and manifest verification.
+- Blender 5.2 validated `addon/` and a newly built
+  `shotariyas_material_combiner-3.1.1.zip`. The ignored package contains 62
+  entries, required runtime metadata and icons, all three reviewed wheels, and
+  no tests, caches, local references, assessment output, logs, or bytecode.
+- Seven isolated source suites passed: public API, UI, atomic lifecycle,
+  preflight failures, dependency absence, atlas workflows, and Windows
+  long-path atlas workflows. Three installed-package suites passed: bundled
+  dependency, public API, and atlas workflows.
+- The live strict CATS 5.2.2 fetch resolved exact release commit
+  `a35128c74e39ad0d81890af084d7cf56c5e38f58` and failed closed before ZIP
+  parsing because local GitHub CLI 2.97.0 still reports
+  `Error: verifying with issuer "sigstore.dev"`. The CATS checkpoint was not
+  run with that unattested archive. GitHub-hosted CATS verification is blocking.
+- Windows cannot cover the foreground atlas undo/repeatability assertion; the
+  hosted Linux foreground suite remains required. Local `actionlint` and YAML
+  parser dependencies are unavailable, so GitHub's workflow parser and hosted
+  workflow contract run are also required before completion.
+
+The working tree was clean after review. The complete branch diff contains
+only the approved attestation policy, workflow, tests, version metadata, and
+documentation. No extension public API, operator, RNA, registration, package
+layout, platform, wheel, atlas, or CATS checkpoint contract changed.
 
 ## Completed security-hardening branch
 
