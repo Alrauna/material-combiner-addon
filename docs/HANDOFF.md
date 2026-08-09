@@ -1,6 +1,45 @@
 # Handoff
 
-## Active release-attestation branch
+## Active Windows release checksum fix
+
+`codex/windows-release-checksum-path` starts from current `master` at
+`5cc7534`. Release run 31317909983 built and uploaded the exact five-file
+3.1.1 handoff, then failed safely before attestation with `release checksum
+manifest digest mismatch`; publication was skipped and no `v3.1.1` tag or
+release exists.
+
+The downloaded manifest is intact and hashes to the expected
+`cef974c759a85c44a9d99d8f03408089e05cf053047060f31bf57017585d0b87`.
+Git Bash reproduces the root cause: GNU `sha256sum` prefixes `\` when printing
+an absolute Windows filename containing backslashes, so `awk` returns a
+65-character escaped field. The same defect affects both artifact-consumer
+checks and stored-release ZIP verification.
+
+The implemented fix hashes from each containing directory with relative
+filenames in both artifact consumers and stored-release ZIP verification. It
+preserves the exact inventory, checksum, permission, attestation,
+publication-order, and stored-byte gates. A focused regression failed twice
+against the absolute-path commands and all seven workflow contracts pass after
+the three substitutions.
+
+Fresh validation: 110 unit tests pass with the three existing platform skips;
+Ruff, bundled-wheel verification, and `git diff --check` pass. A Git Bash
+reproduction against the failed run's downloaded artifact proves both old
+absolute-path commands return a leading `\` and length 65, while both new
+relative-path commands return the unchanged 64-hex manifest and ZIP digests.
+
+Draft PR 19 is open at
+`https://github.com/Alrauna/material-combiner-addon/pull/19`. Hosted run
+31318875927 passes Windows, Linux, and macOS; CodeQL passes for both Actions
+and Python. Release-capability jobs correctly remain skipped on the PR event.
+
+After merge, start a new non-dry-run 3.1.1 dispatch from protected `master`.
+That is the hosted acceptance test for the corrected attestation and
+publication jobs; rerunning 31317909983 would execute its old commit. The
+approved design and plan were committed in `b187c9d` and removed from the
+completed milestone's final tree; Git history retains them for review.
+
+## Completed release-attestation branch
 
 `codex/cats-update-policy-3.1.1` starts from merged `master` at `441a93c`.
 The requested scope is to make normal CI consume new upstream CATS releases

@@ -499,7 +499,7 @@ jobs:
             echo "release package is missing SHA256SUMS.txt" >&2
             exit 1
           fi
-          actual=$(sha256sum "$checksums" | awk '{print $1}')
+          actual=$(cd "$download" && sha256sum SHA256SUMS.txt | awk '{print $1}')
           if [ "$actual" != "$EXPECTED_CHECKSUMS_SHA256" ]; then
             echo "release checksum manifest digest mismatch" >&2
             exit 1
@@ -567,7 +567,7 @@ jobs:
             echo "release package is missing SHA256SUMS.txt" >&2
             exit 1
           fi
-          actual=$(sha256sum "$checksums" | awk '{print $1}')
+          actual=$(cd "$download" && sha256sum SHA256SUMS.txt | awk '{print $1}')
           if [ "$actual" != "$EXPECTED_CHECKSUMS_SHA256" ]; then
             echo "release checksum manifest digest mismatch" >&2
             exit 1
@@ -627,7 +627,7 @@ jobs:
               echo "no checksum recorded for $name" >&2
               exit 1
             fi
-            actual=$(sha256sum "$stored/$name" | awk '{print $1}')
+            actual=$(cd "$stored" && sha256sum "$name" | awk '{print $1}')
             if [ "$actual" != "$expected" ]; then
               echo "stored release archive hash mismatch: $name" >&2
               exit 1
