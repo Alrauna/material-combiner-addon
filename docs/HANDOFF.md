@@ -25,8 +25,9 @@ repeated because no runtime, test, manifest, dependency, contract, licensing,
 attribution, or release input changed.
 
 The approved implementation plan is retained in branch history at `0779411`
-and removed from the completed tree. Publication as a draft pull request is
-authorized. Recommended next action: review the draft PR and its hosted checks.
+and removed from the completed tree. Draft PR 20 is open at
+`https://github.com/Alrauna/material-combiner-addon/pull/20`. Recommended next
+action: review the PR and its hosted checks.
 
 ## Repository and release state
 
