@@ -86,6 +86,25 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
             self.assertIn("expected exactly five release package files", section)
             self.assertIn("EXPECTED_CHECKSUMS_SHA256", section)
             self.assertIn("release checksum manifest digest mismatch", section)
+            self.assertIn(
+                'actual=$(cd "$download" && sha256sum SHA256SUMS.txt | '
+                "awk '{print $1}')",
+                section,
+            )
+            self.assertNotIn(
+                'actual=$(sha256sum "$checksums" | awk', section
+            )
+
+    def test_stored_release_hashes_use_relative_windows_paths(self):
+        publish = self.section("release_publish")
+        self.assertIn(
+            'actual=$(cd "$stored" && sha256sum "$name" | '
+            "awk '{print $1}')",
+            publish,
+        )
+        self.assertNotIn(
+            'actual=$(sha256sum "$stored/$name" | awk', publish
+        )
 
     def test_verified_zips_are_attested_before_publication(self):
         attestation = self.section("release_attestation", "release_publish")
